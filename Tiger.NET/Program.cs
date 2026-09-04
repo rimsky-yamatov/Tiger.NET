@@ -10,7 +10,7 @@ namespace Tiger.NET
             if (args.Length == 0)
             {
                 Console.WriteLine("Tiger.NET Compiler");
-                Console.WriteLine("Usage: Tiger.NET <source.tig> [/O:<output.exe>] [/tfm:<tfm>] [/singlefile]");
+                Console.WriteLine("Usage: Tiger.NET <source.tig> [/O:<output.exe>] [/tfw:<tfw>] [/singlefile]");
                 return;
             }
 
@@ -22,7 +22,8 @@ namespace Tiger.NET
                 {
                     options.OutputFilePath = arg.Substring(3);
                 }
-                else if (arg.StartsWith("/tfm:", StringComparison.OrdinalIgnoreCase))
+                // /tfw: オプションの解析
+                else if (arg.StartsWith("/tfw:", StringComparison.OrdinalIgnoreCase))
                 {
                     options.TargetFramework = arg.Substring(5).ToLower();
                 }
