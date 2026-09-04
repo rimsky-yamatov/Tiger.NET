@@ -69,23 +69,23 @@ namespace Tiger.NET
             {
                 sb.Append($"{indent}if (");
                 EmitExprInline(ifNode.Cond, sb);
-                sb.AppendLine(" != 0) {");
+                sb.AppendLine(" != 0) {{");
                 EmitNode(ifNode.Then, sb, indent + "    ");
-                sb.AppendLine($"{indent}}");
+                sb.AppendLine($"{indent}}}");
                 if (ifNode.Else != null)
                 {
                     sb.AppendLine($"{indent}else {{");
                     EmitNode(ifNode.Else, sb, indent + "    ");
-                    sb.AppendLine($"{indent}}");
+                    sb.AppendLine($"{indent}}}");
                 }
             }
             else if (node is WhileExpNode whileNode)
             {
                 sb.Append($"{indent}while (");
                 EmitExprInline(whileNode.Cond, sb);
-                sb.AppendLine(" != 0) {");
+                sb.AppendLine(" != 0) {{");
                 EmitNode(whileNode.Body, sb, indent + "    ");
-                sb.AppendLine($"{indent}}");
+                sb.AppendLine($"{indent}}}");
             }
             else if (node is ForExpNode forNode)
             {
@@ -95,7 +95,7 @@ namespace Tiger.NET
                 EmitExprInline(forNode.EscapeEnd, sb);
                 sb.AppendLine($"; {forNode.VarName}++) {{");
                 EmitNode(forNode.Body, sb, indent + "    ");
-                sb.AppendLine($"{indent}}");
+                sb.AppendLine($"{indent}}}");
             }
             else
             {
