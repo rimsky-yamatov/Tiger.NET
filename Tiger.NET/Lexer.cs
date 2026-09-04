@@ -4,7 +4,13 @@ using System.Text;
 
 namespace Tiger.NET
 {
-    public enum TokenType { Let, In, End, Var, Assign, Plus, Minus, Multiply, Divide, String, Int, Identifier, LParen, RParen, Comma, Colon, EOF }
+    public enum TokenType
+    {
+        Let, In, End, Var, If, Then, Else, While, Do, For, To, Break,
+        Assign, Plus, Minus, Multiply, Divide, Equal, NotEqual, LessThan,
+        LessEqual, GreaterThan, GreaterEqual, LParen, RParen, Comma, Colon,
+        Semicolon, String, Int, Identifier, EOF
+    }
 
     public class Token
     {
@@ -28,15 +34,32 @@ namespace Tiger.NET
                 char c = _src[_pos];
                 if (char.IsWhiteSpace(c)) { _pos++; continue; }
 
+                // コメント処理 /* ... */
+                if (c == '/' && LookAhead(1) == '*')
+                {
+                    _pos += 2;
+                    while (_pos < _src.Length - 1 && !(_src[_pos] == '*' && _src[_pos + 1] == '/')) _pos++;
+                    _pos += 2;
+                    continue;
+                }
+
                 if (c == '"')
                 {
                     _pos++;
                     var sb = new StringBuilder();
                     while (_pos < _src.Length && _src[_pos] != '"')
                     {
-                        sb.Append(_src[_pos++]);
+                        if (_src[_pos] == '\\' && _pos + 1 < _src.Length)
+                        {
+                            _pos++;
+                            if (_src[_pos] == 'n') sb.Append('\n');
+                            else if (_src[_pos] == 't') sb.Append('\t');
+                            else sb.Append(_src[_pos]);
+                        }
+                        else { sb.Append(_src[_pos]); }
+                        _pos++;
                     }
-                    _pos++; // skip closing quote
+                    _pos++;
                     tokens.Add(new Token(TokenType.String, sb.ToString()));
                     continue;
                 }
@@ -60,20 +83,35 @@ namespace Tiger.NET
                         "in" => TokenType.In,
                         "end" => TokenType.End,
                         "var" => TokenType.Var,
+                        "if" => TokenType.If,
+                        "then" => TokenType.Then,
+                        "else" => TokenType.Else,
+                        "while" => TokenType.While,
+                        "do" => TokenType.Do,
+                        "for" => TokenType.For,
+                        "to" => TokenType.To,
+                        "break" => TokenType.Break,
                         _ => TokenType.Identifier
                     };
                     tokens.Add(new Token(t, val));
                     continue;
                 }
 
-                if (c == ':' && MatchNext('=')) { tokens.Add(new Token(TokenType.Assign, ":=")); continue; }
-                if (c == '+') { tokens.Add(new Token(TokenType.Plus, "+")); _pos++; continue; }
-                if (c == '-') { tokens.Add(new Token(TokenType.Minus, "-")); _pos++; continue; }
-                if (c == '*') { tokens.Add(new Token(TokenType.Multiply, "*")); _pos++; continue; }
-                if (c == '/') { tokens.Add(new Token(TokenType.Divide, "/")); _pos++; continue; }
-                if (c == '(') { tokens.Add(new Token(TokenType.LParen, "(")); _pos++; continue; }
-                if (c == ')') { tokens.Add(new Token(TokenType.RParen, ")")); _pos++; continue; }
-                if (c == ',') { tokens.Add(new Token(TokenType.Comma, ",")); _pos++; continue; }
+                if (c == ':' && LookAhead(1) == '=') { _pos += 2; tokens.Add(new Token(TokenType.Assign, ":=")); continue; }
+                if (c == '<' && LookAhead(1) == '>') { _pos += 2; tokens.Add(new Token(TokenType.NotEqual, "<>")); continue; }
+                if (c == '<' && LookAhead(1) == '=') { _pos += 2; tokens.Add(new Token(TokenType.LessEqual, "<=")); continue; }
+                if (c == '>' && LookAhead(1) == '=') { _pos += 2; tokens.Add(new Token(TokenType.GreaterEqual, ">=")); continue; }
+                if (c == '<') { _pos++; tokens.Add(new Token(TokenType.LessThan, "<")); continue; }
+                if (c == '>') { _pos++; tokens.Add(new Token(TokenType.GreaterThan, ">")); continue; }
+                if (c == '=') { _pos++; tokens.Add(new Token(TokenType.Equal, "=")); continue; }
+                if (c == '+') { _pos++; tokens.Add(new Token(TokenType.Plus, "+")); continue; }
+                if (c == '-') { _pos++; tokens.Add(new Token(TokenType.Minus, "-")); continue; }
+                if (c == '*') { _pos++; tokens.Add(new Token(TokenType.Multiply, "*")); continue; }
+                if (c == '/') { _pos++; tokens.Add(new Token(TokenType.Divide, "/")); continue; }
+                if (c == '(') { _pos++; tokens.Add(new Token(TokenType.LParen, "(")); continue; }
+                if (c == ')') { _pos++; tokens.Add(new Token(TokenType.RParen, ")")); continue; }
+                if (c == ',') { _pos++; tokens.Add(new Token(TokenType.Comma, ",")); continue; }
+                if (c == ';') { _pos++; tokens.Add(new Token(TokenType.Semicolon, ";")); continue; }
 
                 _pos++;
             }
@@ -81,14 +119,6 @@ namespace Tiger.NET
             return tokens;
         }
 
-        private bool MatchNext(char expected)
-        {
-            if (_pos + 1 < _src.Length && _src[_pos + 1] == expected)
-            {
-                _pos += 2;
-                return true;
-            }
-            return false;
-        }
+        private char LookAhead(int offset) => (_pos + offset < _src.Length) ? _src[_pos + offset] : '\0';
     }
 }
