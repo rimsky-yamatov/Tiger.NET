@@ -166,7 +166,7 @@ namespace Tiger.NET
             if (rawTfw.Contains("net10"))
             {
                 targetTfm = "net10.0";
-                frameworkVersion = "10.0.0";
+                frameworkVersion = "10.0.11"; // 実効ランタイムバージョンに一致
                 references = GetNet10References();
             }
             else
@@ -204,6 +204,7 @@ namespace Tiger.NET
                 string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
                 string configPath = Path.Combine(dir, $"{assemblyName}.runtimeconfig.json");
 
+                // 最新バージョンへのロールフォワードを有効化
                 string runtimeConfigContent = "{\n" +
                     "  \"runtimeOptions\": {\n" +
                     $"    \"tfm\": \"{targetTfm}\",\n" +
@@ -211,7 +212,7 @@ namespace Tiger.NET
                     "      \"name\": \"Microsoft.NETCore.App\",\n" +
                     $"      \"version\": \"{frameworkVersion}\"\n" +
                     "    },\n" +
-                    "    \"rollForward\": \"LatestMajor\"\n" +
+                    "    \"rollForward\": \"LatestMinor\"\n" +
                     "  }\n" +
                     "}";
 
@@ -226,18 +227,20 @@ namespace Tiger.NET
         {
             var list = new List<MetadataReference>();
 
-            // SDK の Packs / Ref ディレクトリから .NET 10.0 参照アセンブリを探す
-            string dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT")
-                ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet");
-
-            string refPackDir = Path.Combine(dotnetRoot, "packs", "Microsoft.NETCore.App.Ref");
+            // 1. インストール済み SDK Ref パックから参照アセンブリを取得
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string refPackDir = Path.Combine(programFiles, "dotnet", "packs", "Microsoft.NETCore.App.Ref");
 
             if (Directory.Exists(refPackDir))
             {
                 var versionDirs = Directory.GetDirectories(refPackDir, "10.0.*");
                 if (versionDirs.Length > 0)
                 {
-                    string refDir = Path.Combine(versionDirs[0], "ref", "net10.0");
+                    // 最新の10.0.xバージョンを選択
+                    Array.Sort(versionDirs);
+                    string latestVersionDir = versionDirs[^1];
+
+                    string refDir = Path.Combine(latestVersionDir, "ref", "net10.0");
                     if (Directory.Exists(refDir))
                     {
                         foreach (var dll in Directory.GetFiles(refDir, "*.dll"))
@@ -249,23 +252,31 @@ namespace Tiger.NET
                 }
             }
 
-            // SDK の Ref ディレクトリが見つからない場合のフォールバック:
-            // TRUSTED_PLATFORM_ASSEMBLIES から Private.CoreLib などの内部依存を除外して登録
+            // 2. 実行環境の共有ランタイムディレクトリからアセンブリを取得
+            string sharedFrameworkDir = Path.Combine(programFiles, "dotnet", "shared", "Microsoft.NETCore.App", "10.0.11");
+            if (Directory.Exists(sharedFrameworkDir))
+            {
+                foreach (var dll in Directory.GetFiles(sharedFrameworkDir, "*.dll"))
+                {
+                    string fileName = Path.GetFileName(dll);
+                    if (!fileName.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) &&
+                        !fileName.StartsWith("clr", StringComparison.OrdinalIgnoreCase))
+                    {
+                        list.Add(MetadataReference.CreateFromFile(dll));
+                    }
+                }
+                return list;
+            }
+
+            // 3. 最終フォールバック
             var trustedPaths = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
             foreach (var path in trustedPaths)
             {
                 string fileName = Path.GetFileName(path);
-                // Private.CoreLib 等の実装専用アセンブリを弾く
-                if (fileName.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) ||
-                    fileName.StartsWith("clr", StringComparison.OrdinalIgnoreCase) ||
-                    fileName.StartsWith("mscordaccore", StringComparison.OrdinalIgnoreCase))
+                if (!fileName.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) &&
+                    !fileName.StartsWith("clr", StringComparison.OrdinalIgnoreCase))
                 {
-                    continue;
-                }
-
-                if (File.Exists(path))
-                {
-                    list.Add(MetadataReference.CreateFromFile(path));
+                    if (File.Exists(path)) list.Add(MetadataReference.CreateFromFile(path));
                 }
             }
 
