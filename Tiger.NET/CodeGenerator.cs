@@ -159,22 +159,14 @@ namespace Tiger.NET
             else if (targetTypeName.Contains("win")) outputKind = OutputKind.WindowsApplication;
 
             string rawTfw = string.IsNullOrEmpty(options.TargetFramework) ? "net10.0" : options.TargetFramework.ToLower();
-            string targetTfm;
-            string frameworkVersion;
-            IEnumerable<MetadataReference> references;
 
-            if (rawTfw.Contains("net10"))
-            {
-                targetTfm = "net10.0";
-                frameworkVersion = "10.0.11"; // 実効ランタイムバージョンに一致
-                references = GetNet10References();
-            }
-            else
-            {
-                targetTfm = "net9.0";
-                frameworkVersion = "9.0.0";
-                references = Net90.References.All;
-            }
+            // TFM の正規化 (例: net10.0.11 -> net10.0)
+            string targetTfm = rawTfw.StartsWith("net10") ? "net10.0" : "net9.0";
+            string frameworkVersion = targetTfm == "net10.0" ? "10.0.0" : "9.0.0";
+
+            IEnumerable<MetadataReference> references = targetTfm == "net10.0"
+                ? GetNet10References()
+                : Net90.References.All;
 
             var compilation = CSharpCompilation.Create(
                 assemblyName,
@@ -202,9 +194,11 @@ namespace Tiger.NET
             if (outputKind != OutputKind.DynamicallyLinkedLibrary)
             {
                 string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
+                if (string.IsNullOrEmpty(dir)) dir = Directory.GetCurrentDirectory();
+
                 string configPath = Path.Combine(dir, $"{assemblyName}.runtimeconfig.json");
 
-                // 最新バージョンへのロールフォワードを有効化
+                // .NET 10.0.x ランタイムに柔軟にフィットさせる標準構成
                 string runtimeConfigContent = "{\n" +
                     "  \"runtimeOptions\": {\n" +
                     $"    \"tfm\": \"{targetTfm}\",\n" +
@@ -226,24 +220,20 @@ namespace Tiger.NET
         private static IEnumerable<MetadataReference> GetNet10References()
         {
             var list = new List<MetadataReference>();
-
-            // 1. インストール済み SDK Ref パックから参照アセンブリを取得
             string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            string refPackDir = Path.Combine(programFiles, "dotnet", "packs", "Microsoft.NETCore.App.Ref");
 
+            // 1. Ref パックから探索
+            string refPackDir = Path.Combine(programFiles, "dotnet", "packs", "Microsoft.NETCore.App.Ref");
             if (Directory.Exists(refPackDir))
             {
                 var versionDirs = Directory.GetDirectories(refPackDir, "10.0.*");
                 if (versionDirs.Length > 0)
                 {
-                    // 最新の10.0.xバージョンを選択
                     Array.Sort(versionDirs);
-                    string latestVersionDir = versionDirs[^1];
-
-                    string refDir = Path.Combine(latestVersionDir, "ref", "net10.0");
-                    if (Directory.Exists(refDir))
+                    string latestRef = Path.Combine(versionDirs[^1], "ref", "net10.0");
+                    if (Directory.Exists(latestRef))
                     {
-                        foreach (var dll in Directory.GetFiles(refDir, "*.dll"))
+                        foreach (var dll in Directory.GetFiles(latestRef, "*.dll"))
                         {
                             list.Add(MetadataReference.CreateFromFile(dll));
                         }
@@ -252,29 +242,36 @@ namespace Tiger.NET
                 }
             }
 
-            // 2. 実行環境の共有ランタイムディレクトリからアセンブリを取得
-            string sharedFrameworkDir = Path.Combine(programFiles, "dotnet", "shared", "Microsoft.NETCore.App", "10.0.11");
-            if (Directory.Exists(sharedFrameworkDir))
+            // 2. インストール済み Shared ランタイム (10.0.11 等) からアセンブリを直接参照
+            string sharedDir = Path.Combine(programFiles, "dotnet", "shared", "Microsoft.NETCore.App");
+            if (Directory.Exists(sharedDir))
             {
-                foreach (var dll in Directory.GetFiles(sharedFrameworkDir, "*.dll"))
+                var runtimeDirs = Directory.GetDirectories(sharedDir, "10.0.*");
+                if (runtimeDirs.Length > 0)
                 {
-                    string fileName = Path.GetFileName(dll);
-                    if (!fileName.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) &&
-                        !fileName.StartsWith("clr", StringComparison.OrdinalIgnoreCase))
+                    Array.Sort(runtimeDirs);
+                    string targetDir = runtimeDirs[^1];
+                    foreach (var dll in Directory.GetFiles(targetDir, "*.dll"))
                     {
-                        list.Add(MetadataReference.CreateFromFile(dll));
+                        string name = Path.GetFileName(dll);
+                        if (!name.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) &&
+                            !name.StartsWith("clr", StringComparison.OrdinalIgnoreCase) &&
+                            !name.StartsWith("mscord", StringComparison.OrdinalIgnoreCase))
+                        {
+                            list.Add(MetadataReference.CreateFromFile(dll));
+                        }
                     }
+                    return list;
                 }
-                return list;
             }
 
-            // 3. 最終フォールバック
-            var trustedPaths = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
-            foreach (var path in trustedPaths)
+            // 3. TRUSTED_PLATFORM_ASSEMBLIES (フォールバック)
+            var trusted = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
+            foreach (var path in trusted)
             {
-                string fileName = Path.GetFileName(path);
-                if (!fileName.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) &&
-                    !fileName.StartsWith("clr", StringComparison.OrdinalIgnoreCase))
+                string name = Path.GetFileName(path);
+                if (!name.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) &&
+                    !name.StartsWith("clr", StringComparison.OrdinalIgnoreCase))
                 {
                     if (File.Exists(path)) list.Add(MetadataReference.CreateFromFile(path));
                 }
