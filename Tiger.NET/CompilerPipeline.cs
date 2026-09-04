@@ -80,15 +80,19 @@ namespace Tiger.NET
                 };
 
                 using var proc = Process.Start(psi);
-                proc.WaitForExit();
+                if (proc != null)
+                {
+                    proc.WaitForExit();
 
-                if (proc.ExitCode == 0)
-                {
-                    Console.WriteLine($"[Success] Native Executable Published to Output Path.");
-                }
-                else
-                {
-                    Console.WriteLine("[Error] Native Publish Failed:\n" + proc.StandardError.ReadToEnd());
+                    if (proc.ExitCode == 0)
+                    {
+                        Console.WriteLine($"[Success] Native Executable Published to Output Path.");
+                    }
+                    else
+                    {
+                        string err = proc.StandardError.ReadToEnd(); // CS8602警告回避
+                        Console.WriteLine("[Error] Native Publish Failed:\n" + err);
+                    }
                 }
             }
             finally
