@@ -18,11 +18,14 @@ namespace Tiger.NET
 
             try
             {
-                Console.WriteLine($"[Pipeline] Reading source file: {options.SourceFilePath}");
+                if (options.VerboseOutput)
+                    Console.WriteLine($"[Pipeline] Reading source file: {options.SourceFilePath}");
+
                 string tigerCode = File.ReadAllText(options.SourceFilePath);
 
-                // 1. Lexer によるトークン化
-                Console.WriteLine("[Pipeline] Tokenizing source code...");
+                if (options.VerboseOutput)
+                    Console.WriteLine("[Pipeline] Tokenizing source code...");
+
                 var tokens = TokenizeSource(tigerCode);
                 if (tokens == null || tokens.Count == 0)
                 {
@@ -30,8 +33,9 @@ namespace Tiger.NET
                     return false;
                 }
 
-                // 2. Parser による構文解析 (AST生成)
-                Console.WriteLine("[Pipeline] Parsing tokens to AST...");
+                if (options.VerboseOutput)
+                    Console.WriteLine("[Pipeline] Parsing tokens to AST...");
+
                 var parser = new Parser(tokens);
                 ExpNode ast = parser.Parse();
 
@@ -41,12 +45,14 @@ namespace Tiger.NET
                     return false;
                 }
 
-                // 3. C# コード生成
-                Console.WriteLine("[Pipeline] Generating C# Code...");
+                if (options.VerboseOutput)
+                    Console.WriteLine("[Pipeline] Generating C# Code...");
+
                 string csharpCode = CodeGenerator.EmitCSharp(ast);
 
-                // 4. Roslyn による C# から .NET アセンブリ (DLL / EXE) の出力
-                Console.WriteLine($"[Pipeline] Compiling to Assembly (Target: {options.TargetFramework})...");
+                if (options.VerboseOutput)
+                    Console.WriteLine($"[Pipeline] Compiling to Assembly (Target: {options.TargetFramework})...");
+
                 bool success = CodeGenerator.CompileToAssembly(csharpCode, options);
 
                 if (!success)
@@ -55,7 +61,6 @@ namespace Tiger.NET
                     return false;
                 }
 
-                // 5. SingleFile オプション指定時のパブリッシュ処理
                 if (options.IsSingleFile)
                 {
                     PublishSingleFile(options);
@@ -67,14 +72,12 @@ namespace Tiger.NET
             catch (Exception ex)
             {
                 Console.WriteLine($"[Error] Compiler pipeline exception: {ex.Message}");
-                Console.WriteLine(ex.StackTrace);
+                if (options.VerboseOutput)
+                    Console.WriteLine(ex.StackTrace);
                 return false;
             }
         }
 
-        /// <summary>
-        /// Lexer クラスの各種実装形態 (Lexer.Tokenize(code) / new Lexer(code).Tokenize() 等) に自動対応
-        /// </summary>
         private static List<Token>? TokenizeSource(string tigerCode)
         {
             Type? lexerType = typeof(CompilerPipeline).Assembly.GetType("Tiger.NET.Lexer")
@@ -82,20 +85,16 @@ namespace Tiger.NET
 
             if (lexerType == null) return null;
 
-            // 1. static メソッド Tokenize(string) の検索
             var staticMethod = lexerType.GetMethod("Tokenize", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string) }, null);
             if (staticMethod != null)
             {
                 return staticMethod.Invoke(null, new object[] { tigerCode }) as List<Token>;
             }
 
-            // 2. インスタンス生成: new Lexer(string)
             var ctor = lexerType.GetConstructor(new[] { typeof(string) });
             if (ctor != null)
             {
                 object lexerInst = ctor.Invoke(new object[] { tigerCode });
-
-                // Tokenize() / Scan() / GetTokens() などのメソッドを探して実行
                 string[] possibleNames = { "Tokenize", "Scan", "GetTokens", "ParseTokens" };
                 foreach (var name in possibleNames)
                 {
