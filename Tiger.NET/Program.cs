@@ -17,8 +17,8 @@ namespace Tiger.NET
 
             foreach (var arg in args)
             {
-                // /O: 出力ファイル指定
-                if (arg.StartsWith("/O:", StringComparison.OrdinalIgnoreCase))
+                // /o: 出力ファイル指定
+                if (arg.StartsWith("/o:", StringComparison.OrdinalIgnoreCase))
                 {
                     options.OutputFilePath = arg.Substring(3);
                 }
@@ -97,7 +97,7 @@ namespace Tiger.NET
             Console.WriteLine("Tiger.NET Compiler");
             Console.WriteLine("Usage: Tiger.NET <source.tig> [options]");
             Console.WriteLine("Options:");
-            Console.WriteLine("  /O:<file>             Specify output executable/dll path");
+            Console.WriteLine("  /o:<file>             Specify output executable/dll path");
             Console.WriteLine("  /tfw:<framework>      Specify target framework (e.g. net9.0, net10.0)");
             Console.WriteLine("  /target:<type>        Target build type: exe, win, dll");
             Console.WriteLine("  /optimize:<level>     Optimization level: 0, 1, 2");
