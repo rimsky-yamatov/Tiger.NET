@@ -23,6 +23,25 @@ namespace Tiger.NET
         public VarDeclNode(string name, ExpNode init) { Name = name; Init = init; }
     }
 
+    public class FuncParam
+    {
+        public string Name { get; set; }
+        public string TypeName { get; set; }
+        public FuncParam(string name, string typeName) { Name = name; TypeName = typeName; }
+    }
+
+    public class FunctionDeclNode : ExpNode
+    {
+        public string Name { get; set; }
+        public List<FuncParam> Params { get; set; }
+        public string ReturnType { get; set; }
+        public ExpNode Body { get; set; }
+        public FunctionDeclNode(string name, List<FuncParam> @params, string returnType, ExpNode body)
+        {
+            Name = name; Params = @params; ReturnType = returnType; Body = body;
+        }
+    }
+
     public class AssignNode : ExpNode
     {
         public string VarName { get; set; }
