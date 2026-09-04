@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Basic.Reference.Assemblies;
-using Microsoft.NETCore.HostModel.AppHost; // Microsoft.NETCore.HostModel が必要です
 
 namespace Tiger.NET
 {
@@ -155,7 +154,6 @@ namespace Tiger.NET
             string baseName = Path.GetFileNameWithoutExtension(options.OutputFilePath);
             string outputDir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? Directory.GetCurrentDirectory();
 
-            // 出力する主要なアセンブリは常に DLL としてコンパイルする
             string dllPath = Path.Combine(outputDir, $"{baseName}.dll");
             string exePath = Path.Combine(outputDir, $"{baseName}.exe");
 
@@ -167,7 +165,6 @@ namespace Tiger.NET
                 ? GetNet10References()
                 : Net90.References.All;
 
-            // Roslyn には ConsoleApplication を指定して DLL を生成
             var compilation = CSharpCompilation.Create(
                 baseName,
                 syntaxTrees: new[] { syntaxTree },
@@ -175,7 +172,7 @@ namespace Tiger.NET
                 options: new CSharpCompilationOptions(OutputKind.ConsoleApplication, optimizationLevel: OptimizationLevel.Release)
             );
 
-            // 1. まず hello.dll を生成
+            // 1. hello.dll をコンパイル生成
             using (var stream = File.Create(dllPath))
             {
                 var result = compilation.Emit(stream);
@@ -206,11 +203,11 @@ namespace Tiger.NET
                 "}";
             File.WriteAllText(configPath, runtimeConfigContent);
 
-            // 3. EXE ランチャーの生成
-            bool successHost = CreateNativeAppHost(dllPath, exePath, targetTfm);
+            // 3. 自前ロジックで apphost.exe を書き換えて hello.exe を生成
+            bool successHost = CreateNativeAppHost(dllPath, exePath);
             if (!successHost)
             {
-                Console.WriteLine("[Warning] Native AppHost generation skipped or failed. Use 'dotnet " + baseName + ".dll' to run.");
+                Console.WriteLine("[Warning] Native AppHost generation skipped. Run using 'dotnet " + baseName + ".dll'");
             }
 
             Console.WriteLine($"[Success] Assembly Generated ({targetTfm}): {dllPath}");
@@ -222,7 +219,7 @@ namespace Tiger.NET
             return true;
         }
 
-        private static bool CreateNativeAppHost(string dllPath, string destinationExePath, string targetTfm)
+        private static bool CreateNativeAppHost(string dllPath, string destinationExePath)
         {
             try
             {
@@ -240,15 +237,12 @@ namespace Tiger.NET
 
                 if (!File.Exists(templateAppHostPath)) return false;
 
-                string appDllName = Path.GetFileName(dllPath);
-
-                // AppHostBinaryModifier を用いて apphost.exe 内のバイナリのプレースホルダーを dll 名に修正して出力
-                HostModelUtils.CreateStandaloneHost(templateAppHostPath, destinationExePath, appDllName);
+                HostModelUtils.CreateStandaloneHost(templateAppHostPath, destinationExePath, dllPath);
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[AppHost Error] {ex.Message}");
+                Console.WriteLine($"[AppHost Warning] {ex.Message}");
                 return false;
             }
         }
@@ -303,17 +297,43 @@ namespace Tiger.NET
         }
     }
 
-    // AppHost の書き換え用ヘルパー
+    // 外部 NuGet 不要の AppHost バイナリ書き換えクラス
     public static class HostModelUtils
     {
         public static void CreateStandaloneHost(string appHostSourcePath, string appHostDestinationPath, string appBinaryFilePath)
         {
-            // Microsoft.NETCore.HostModel パッケージの AppHost.Create を使用
-            HostModel.AppHost.HostWriter.CreateAppHost(
-                appHostSourceFilePath: appHostSourcePath,
-                appHostDestinationFilePath: appHostDestinationPath,
-                appBinaryFilePath: appBinaryFilePath
-            );
+            byte[] bytes = File.ReadAllBytes(appHostSourcePath);
+
+            // apphost.exe 内のデフォルト埋め込みプレースホルダーバイト列 ("apphost.dll\0")
+            byte[] pattern = Encoding.UTF8.GetBytes("apphost.dll\0");
+            byte[] replacement = Encoding.UTF8.GetBytes(Path.GetFileName(appBinaryFilePath) + "\0");
+
+            int index = IndexOfBytes(bytes, pattern);
+            if (index != -1)
+            {
+                Array.Clear(bytes, index, pattern.Length);
+                Array.Copy(replacement, 0, bytes, index, replacement.Length);
+            }
+
+            File.WriteAllBytes(appHostDestinationPath, bytes);
+        }
+
+        private static int IndexOfBytes(byte[] source, byte[] pattern)
+        {
+            for (int i = 0; i <= source.Length - pattern.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < pattern.Length; j++)
+                {
+                    if (source[i + j] != pattern[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return i;
+            }
+            return -1;
         }
     }
 }
