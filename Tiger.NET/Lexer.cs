@@ -6,7 +6,7 @@ namespace Tiger.NET
 {
     public enum TokenType
     {
-        Let, In, End, Var, If, Then, Else, While, Do, For, To, Break,
+        Let, In, End, Var, Function, If, Then, Else, While, Do, For, To, Break,
         Assign, Plus, Minus, Multiply, Divide, Equal, NotEqual, LessThan,
         LessEqual, GreaterThan, GreaterEqual, LParen, RParen, Comma, Colon,
         Semicolon, String, Int, Identifier, EOF
@@ -34,7 +34,6 @@ namespace Tiger.NET
                 char c = _src[_pos];
                 if (char.IsWhiteSpace(c)) { _pos++; continue; }
 
-                // コメント処理 /* ... */
                 if (c == '/' && LookAhead(1) == '*')
                 {
                     _pos += 2;
@@ -83,6 +82,7 @@ namespace Tiger.NET
                         "in" => TokenType.In,
                         "end" => TokenType.End,
                         "var" => TokenType.Var,
+                        "function" => TokenType.Function,
                         "if" => TokenType.If,
                         "then" => TokenType.Then,
                         "else" => TokenType.Else,
@@ -110,6 +110,7 @@ namespace Tiger.NET
                 if (c == '/') { _pos++; tokens.Add(new Token(TokenType.Divide, "/")); continue; }
                 if (c == '(') { _pos++; tokens.Add(new Token(TokenType.LParen, "(")); continue; }
                 if (c == ')') { _pos++; tokens.Add(new Token(TokenType.RParen, ")")); continue; }
+                if (c == ':') { _pos++; tokens.Add(new Token(TokenType.Colon, ":")); continue; }
                 if (c == ',') { _pos++; tokens.Add(new Token(TokenType.Comma, ",")); continue; }
                 if (c == ';') { _pos++; tokens.Add(new Token(TokenType.Semicolon, ";")); continue; }
 
