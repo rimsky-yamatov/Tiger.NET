@@ -66,7 +66,7 @@ namespace Tiger.NET
         private static void EmitExprInline(ExpNode node, StringBuilder sb)
         {
             if (node is StringLiteralNode s) sb.Append($"\"{s.Value.Replace("\"", "\\\"")}\"");
-            else if (node is IntLiteralNode i) sb.Append(i.Value);
+            else if (node is IntLiteralNode intNode) sb.Append(intNode.Value); // CS0136回避: iからintNodeへ変更
             else if (node is VarAccessNode v) sb.Append(v.Name);
             else if (node is BinaryExpNode b)
             {
