@@ -1,10 +1,11 @@
-﻿using System;
-using System.IO;
-using System.Text;
-using System.Collections.Generic;
+﻿using Basic.Reference.Assemblies;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Basic.Reference.Assemblies;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Xml.Linq;
 
 namespace Tiger.NET
 {
@@ -24,12 +25,21 @@ namespace Tiger.NET
             sb.AppendLine("        }");
             sb.AppendLine("    }");
 
-            // Tiger Runtime Standard Library
+            // 全標準ライブラリの実装
             sb.AppendLine("    public static class TigerStdLib {");
             sb.AppendLine("        public static void Init() {}");
-            sb.AppendLine("        public static void print(string s) => Console.Write(s);");
-            sb.AppendLine("        public static void printline(string s) => Console.WriteLine(s);");
+            sb.AppendLine("        public static void print(object s) => Console.Write(s);");
+            sb.AppendLine("        public static void printline(object s) => Console.WriteLine(s);");
             sb.AppendLine("        public static void printint(int i) => Console.Write(i);");
+            sb.AppendLine("        public static void flush() => Console.Out.Flush();");
+            sb.AppendLine("        public static string getchar() => Console.Read() == -1 ? \"\" : ((char)Console.Read()).ToString();");
+            sb.AppendLine("        public static int ord(string s) => string.IsNullOrEmpty(s) ? -1 : (int)s[0];");
+            sb.AppendLine("        public static string chr(int i) => ((char)i).ToString();");
+            sb.AppendLine("        public static int size(string s) => s?.Length ?? 0;");
+            sb.AppendLine("        public static string substring(string s, int first, int n) => s.Substring(first, n);");
+            sb.AppendLine("        public static string concat(string s1, string s2) => string.Concat(s1, s2);");
+            sb.AppendLine("        public static int not(int i) => i == 0 ? 1 : 0;");
+            sb.AppendLine("        public static void exit(int status) => Environment.Exit(status);");
             sb.AppendLine("    }");
             sb.AppendLine("}");
             return sb.ToString();
@@ -43,7 +53,7 @@ namespace Tiger.NET
                 {
                     if (dec is VarDeclNode v)
                     {
-                        sb.Append($"{indent}var {v.Name} = ");
+                        sb.Append($"{indent}dynamic {v.Name} = ");
                         EmitExprInline(v.Init, sb);
                         sb.AppendLine(";");
                     }
@@ -54,6 +64,38 @@ namespace Tiger.NET
                     EmitExprInline(b, sb);
                     sb.AppendLine(";");
                 }
+            }
+            else if (node is IfExpNode ifNode)
+            {
+                sb.Append($"{indent}if (");
+                EmitExprInline(ifNode.Cond, sb);
+                sb.AppendLine(" != 0) {");
+                EmitNode(ifNode.Then, sb, indent + "    ");
+                sb.AppendLine($"{indent}}");
+                if (ifNode.Else != null)
+                {
+                    sb.AppendLine($"{indent}else {{");
+                    EmitNode(ifNode.Else, sb, indent + "    ");
+                    sb.AppendLine($"{indent}}");
+                }
+            }
+            else if (node is WhileExpNode whileNode)
+            {
+                sb.Append($"{indent}while (");
+                EmitExprInline(whileNode.Cond, sb);
+                sb.AppendLine(" != 0) {");
+                EmitNode(whileNode.Body, sb, indent + "    ");
+                sb.AppendLine($"{indent}}");
+            }
+            else if (node is ForExpNode forNode)
+            {
+                sb.Append($"{indent}for (dynamic {forNode.VarName} = ");
+                EmitExprInline(forNode.EscapeStart, sb);
+                sb.Append($"; {forNode.VarName} <= ");
+                EmitExprInline(forNode.EscapeEnd, sb);
+                sb.AppendLine($"; {forNode.VarName}++) {{");
+                EmitNode(forNode.Body, sb, indent + "    ");
+                sb.AppendLine($"{indent}}");
             }
             else
             {
@@ -66,19 +108,35 @@ namespace Tiger.NET
         private static void EmitExprInline(ExpNode node, StringBuilder sb)
         {
             if (node is StringLiteralNode s) sb.Append($"\"{s.Value.Replace("\"", "\\\"")}\"");
-            else if (node is IntLiteralNode intNode) sb.Append(intNode.Value); // CS0136回避: iからintNodeへ変更
+            else if (node is IntLiteralNode intNode) sb.Append(intNode.Value);
             else if (node is VarAccessNode v) sb.Append(v.Name);
+            else if (node is AssignNode a)
+            {
+                sb.Append($"{a.VarName} = ");
+                EmitExprInline(a.Value, sb);
+            }
+            else if (node is BreakExpNode) sb.Append("break");
             else if (node is BinaryExpNode b)
             {
+                string op = b.Op switch
+                {
+                    "=" => "==",
+                    "<>" => "!=",
+                    _ => b.Op
+                };
                 sb.Append("(");
                 EmitExprInline(b.Left, sb);
-                sb.Append($" {b.Op} ");
+                sb.Append($" {op} ");
                 EmitExprInline(b.Right, sb);
                 sb.Append(")");
             }
             else if (node is CallExpNode c)
             {
-                sb.Append($"TigerStdLib.{c.FuncName}(");
+                if (c.FuncName == "printline") sb.Append("TigerStdLib.printline(");
+                else if (c.FuncName == "print") sb.Append("TigerStdLib.print(");
+                else if (c.FuncName == "printint") sb.Append("TigerStdLib.printint(");
+                else sb.Append($"TigerStdLib.{c.FuncName}(");
+
                 for (int i = 0; i < c.Args.Count; i++)
                 {
                     if (i > 0) sb.Append(", ");
