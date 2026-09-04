@@ -158,7 +158,6 @@ namespace Tiger.NET
             if (targetTypeName.Contains("dll")) outputKind = OutputKind.DynamicallyLinkedLibrary;
             else if (targetTypeName.Contains("win")) outputKind = OutputKind.WindowsApplication;
 
-            // /tfw オプション値の解析
             string rawTfw = string.IsNullOrEmpty(options.TargetFramework) ? "net10.0" : options.TargetFramework.ToLower();
             string targetTfm;
             string frameworkVersion;
@@ -168,8 +167,7 @@ namespace Tiger.NET
             {
                 targetTfm = "net10.0";
                 frameworkVersion = "10.0.0";
-                // .NET 10 ランタイムアセンブリから直接参照を生成
-                references = GetCurrentRuntimeReferences();
+                references = GetNet10References();
             }
             else
             {
@@ -224,16 +222,50 @@ namespace Tiger.NET
             return true;
         }
 
-        private static IEnumerable<MetadataReference> GetCurrentRuntimeReferences()
+        private static IEnumerable<MetadataReference> GetNet10References()
         {
-            var trustedAssembliesPaths = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
             var list = new List<MetadataReference>();
 
-            foreach (var refPath in trustedAssembliesPaths)
+            // SDK の Packs / Ref ディレクトリから .NET 10.0 参照アセンブリを探す
+            string dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT")
+                ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet");
+
+            string refPackDir = Path.Combine(dotnetRoot, "packs", "Microsoft.NETCore.App.Ref");
+
+            if (Directory.Exists(refPackDir))
             {
-                if (File.Exists(refPath))
+                var versionDirs = Directory.GetDirectories(refPackDir, "10.0.*");
+                if (versionDirs.Length > 0)
                 {
-                    list.Add(MetadataReference.CreateFromFile(refPath));
+                    string refDir = Path.Combine(versionDirs[0], "ref", "net10.0");
+                    if (Directory.Exists(refDir))
+                    {
+                        foreach (var dll in Directory.GetFiles(refDir, "*.dll"))
+                        {
+                            list.Add(MetadataReference.CreateFromFile(dll));
+                        }
+                        return list;
+                    }
+                }
+            }
+
+            // SDK の Ref ディレクトリが見つからない場合のフォールバック:
+            // TRUSTED_PLATFORM_ASSEMBLIES から Private.CoreLib などの内部依存を除外して登録
+            var trustedPaths = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
+            foreach (var path in trustedPaths)
+            {
+                string fileName = Path.GetFileName(path);
+                // Private.CoreLib 等の実装専用アセンブリを弾く
+                if (fileName.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) ||
+                    fileName.StartsWith("clr", StringComparison.OrdinalIgnoreCase) ||
+                    fileName.StartsWith("mscordaccore", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (File.Exists(path))
+                {
+                    list.Add(MetadataReference.CreateFromFile(path));
                 }
             }
 
