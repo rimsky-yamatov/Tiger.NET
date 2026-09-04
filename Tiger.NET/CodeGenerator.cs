@@ -49,6 +49,7 @@ namespace Tiger.NET
             sb.AppendLine("        public static string substring(string s, int first, int n) => s.Substring(first, n);");
             sb.AppendLine("        public static string concat(string s1, string s2) => string.Concat(s1, s2);");
             sb.AppendLine("        public static int not(int i) => i == 0 ? 1 : 0;");
+            sb.AppendLine("        public static bool IsTruthy(dynamic cond) => cond is bool b ? b : Convert.ToInt32(cond) != 0;");
             sb.AppendLine("        public static void exit(int status) => Environment.Exit(status);");
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -75,9 +76,9 @@ namespace Tiger.NET
         {
             if (node is IfExpNode ifNode)
             {
-                sb.Append($"{indent}if (");
+                sb.Append($"{indent}if (TigerStdLib.IsTruthy(");
                 EmitExprInline(ifNode.Cond, sb);
-                sb.AppendLine(")");
+                sb.AppendLine("))");
                 sb.AppendLine($"{indent}{{");
                 EmitFunctionBody(ifNode.Then, sb, indent + "    ");
                 sb.AppendLine($"{indent}}}");
@@ -140,9 +141,9 @@ namespace Tiger.NET
             }
             else if (node is IfExpNode ifNode)
             {
-                sb.Append($"{indent}if (");
+                sb.Append($"{indent}if (TigerStdLib.IsTruthy(");
                 EmitExprInline(ifNode.Cond, sb);
-                sb.AppendLine(")");
+                sb.AppendLine("))");
                 sb.AppendLine($"{indent}{{");
                 EmitNode(ifNode.Then, sb, indent + "    ");
                 sb.AppendLine($"{indent}}}");
@@ -156,9 +157,9 @@ namespace Tiger.NET
             }
             else if (node is WhileExpNode whileNode)
             {
-                sb.Append($"{indent}while (");
+                sb.Append($"{indent}while (TigerStdLib.IsTruthy(");
                 EmitExprInline(whileNode.Cond, sb);
-                sb.AppendLine(")");
+                sb.AppendLine("))");
                 sb.AppendLine($"{indent}{{");
                 EmitNode(whileNode.Body, sb, indent + "    ");
                 sb.AppendLine($"{indent}}}");
