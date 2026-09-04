@@ -50,6 +50,10 @@ namespace Tiger.NET
                     ExpNode init = ParseExp();
                     decs.Add(new VarDeclNode(name, init));
                 }
+                else if (Current.Type == TokenType.Function)
+                {
+                    decs.Add(ParseFunctionDecl());
+                }
                 else { _idx++; }
             }
             Consume(TokenType.In);
@@ -61,6 +65,38 @@ namespace Tiger.NET
             }
             Consume(TokenType.End);
             return new LetExpNode(decs, body);
+        }
+
+        private FunctionDeclNode ParseFunctionDecl()
+        {
+            Consume(TokenType.Function);
+            string name = Consume(TokenType.Identifier).Value;
+            Consume(TokenType.LParen);
+            var parameters = new List<FuncParam>();
+            if (Current.Type != TokenType.RParen)
+            {
+                while (true)
+                {
+                    string pName = Consume(TokenType.Identifier).Value;
+                    Consume(TokenType.Colon);
+                    string pType = Consume(TokenType.Identifier).Value;
+                    parameters.Add(new FuncParam(pName, pType));
+                    if (Current.Type == TokenType.Comma) Consume(TokenType.Comma);
+                    else break;
+                }
+            }
+            Consume(TokenType.RParen);
+
+            string retType = "void";
+            if (Current.Type == TokenType.Colon)
+            {
+                Consume(TokenType.Colon);
+                retType = Consume(TokenType.Identifier).Value;
+            }
+
+            Consume(TokenType.Equal);
+            ExpNode body = ParseExp();
+            return new FunctionDeclNode(name, parameters, retType, body);
         }
 
         private ExpNode ParseIf()
