@@ -10,6 +10,7 @@ namespace Tiger.NET
             if (args.Length == 0)
             {
                 Console.WriteLine("Tiger.NET Compiler");
+                Console.WriteLine("Usage: Tiger.NET <source.tig> [/O:<output.exe>] [/tfm:<tfm>] [/singlefile]");
                 return;
             }
 
@@ -17,11 +18,11 @@ namespace Tiger.NET
 
             foreach (var arg in args)
             {
-                if (arg.StartsWith("/O:") || arg.StartsWith("/o:"))
+                if (arg.StartsWith("/O:", StringComparison.OrdinalIgnoreCase) || arg.StartsWith("/o:", StringComparison.OrdinalIgnoreCase))
                 {
                     options.OutputFilePath = arg.Substring(3);
                 }
-                else if (arg.StartsWith("/tfm:"))
+                else if (arg.StartsWith("/tfm:", StringComparison.OrdinalIgnoreCase))
                 {
                     options.TargetFramework = arg.Substring(5).ToLower();
                 }
@@ -41,7 +42,6 @@ namespace Tiger.NET
                 return;
             }
 
-            // CompilerPipeline に処理を委譲する場合は Pipeline を呼び出す
             CompilerPipeline.Run(options);
         }
     }
