@@ -16,6 +16,18 @@ namespace Tiger.NET
             sb.AppendLine("using System;");
             sb.AppendLine("namespace Tiger.NET.Runtime {");
             sb.AppendLine("    public static class ExecutableProgram {");
+
+            if (ast is LetExpNode rootLet)
+            {
+                foreach (var dec in rootLet.Decs)
+                {
+                    if (dec is FunctionDeclNode fn)
+                    {
+                        EmitUserFunction(fn, sb, "        ");
+                    }
+                }
+            }
+
             sb.AppendLine("        public static void Main(string[] args) {");
             sb.AppendLine("            TigerStdLib.Init();");
 
@@ -41,6 +53,22 @@ namespace Tiger.NET
             sb.AppendLine("    }");
             sb.AppendLine("}");
             return sb.ToString();
+        }
+
+        private static void EmitUserFunction(FunctionDeclNode fn, StringBuilder sb, string indent)
+        {
+            sb.Append($"{indent}public static dynamic {fn.Name}(");
+            for (int i = 0; i < fn.Params.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append($"dynamic {fn.Params[i].Name}");
+            }
+            sb.AppendLine(")");
+            sb.AppendLine($"{indent}{{");
+            sb.Append($"{indent}    return ");
+            EmitExprInline(fn.Body, sb);
+            sb.AppendLine(";");
+            sb.AppendLine($"{indent}}}");
         }
 
         private static void EmitNode(ExpNode node, StringBuilder sb, string indent)
@@ -99,6 +127,10 @@ namespace Tiger.NET
                 EmitNode(forNode.Body, sb, indent + "    ");
                 sb.AppendLine($"{indent}}}");
             }
+            else if (node is FunctionDeclNode)
+            {
+                // Top-level / outer declarations are handled in EmitCSharp
+            }
             else
             {
                 sb.Append(indent);
@@ -134,10 +166,14 @@ namespace Tiger.NET
             }
             else if (node is CallExpNode c)
             {
-                if (c.FuncName == "printline") sb.Append("TigerStdLib.printline(");
-                else if (c.FuncName == "print") sb.Append("TigerStdLib.print(");
-                else if (c.FuncName == "printint") sb.Append("TigerStdLib.printint(");
-                else sb.Append($"TigerStdLib.{c.FuncName}(");
+                if (c.FuncName is "printline" or "print" or "printint" or "flush" or "getchar" or "ord" or "chr" or "size" or "substring" or "concat" or "not" or "exit")
+                {
+                    sb.Append($"TigerStdLib.{c.FuncName}(");
+                }
+                else
+                {
+                    sb.Append($"{c.FuncName}(");
+                }
 
                 for (int i = 0; i < c.Args.Count; i++)
                 {
@@ -157,7 +193,6 @@ namespace Tiger.NET
             string dllPath = Path.Combine(outputDir, $"{baseName}.dll");
             string exePath = Path.Combine(outputDir, $"{baseName}.exe");
 
-            // /tfm からターゲットフレームワークを取得
             string rawTfm = string.IsNullOrEmpty(options.TargetFramework) ? "net10.0" : options.TargetFramework.ToLower();
             string targetTfm = rawTfm.StartsWith("net10") ? "net10.0" : "net9.0";
             string frameworkVersion = targetTfm == "net10.0" ? "10.0.11" : "9.0.0";
@@ -166,14 +201,24 @@ namespace Tiger.NET
                 ? GetNet10References()
                 : Net90.References.All;
 
+            OutputKind outputKind = options.TargetType switch
+            {
+                OutputType.Dll => OutputKind.DynamicallyLinkedLibrary,
+                OutputType.WindowsApplication => OutputKind.WindowsApplication,
+                _ => OutputKind.ConsoleApplication
+            };
+
+            OptimizationLevel optLevel = options.OptimizationLevel == OptimizationLevelKind.Debug
+                ? OptimizationLevel.Debug
+                : OptimizationLevel.Release;
+
             var compilation = CSharpCompilation.Create(
                 baseName,
                 syntaxTrees: new[] { syntaxTree },
                 references: references,
-                options: new CSharpCompilationOptions(OutputKind.ConsoleApplication, optimizationLevel: OptimizationLevel.Release)
+                options: new CSharpCompilationOptions(outputKind, optimizationLevel: optLevel)
             );
 
-            // 1. hello.dll を生成
             using (var stream = File.Create(dllPath))
             {
                 var result = compilation.Emit(stream);
@@ -190,7 +235,6 @@ namespace Tiger.NET
                 }
             }
 
-            // 2. hello.runtimeconfig.json を生成
             string configPath = Path.Combine(outputDir, $"{baseName}.runtimeconfig.json");
             string runtimeConfigContent = "{\n" +
                 "  \"runtimeOptions\": {\n" +
@@ -204,7 +248,6 @@ namespace Tiger.NET
                 "}";
             File.WriteAllText(configPath, runtimeConfigContent);
 
-            // 3. apphost.exe を書き換えて Native EXE (hello.exe) を出力
             bool successHost = CreateNativeAppHost(dllPath, exePath);
             if (!successHost)
             {
@@ -303,8 +346,6 @@ namespace Tiger.NET
         public static void CreateStandaloneHost(string appHostSourcePath, string appHostDestinationPath, string appBinaryFilePath)
         {
             byte[] bytes = File.ReadAllBytes(appHostSourcePath);
-
-            // AppHost 内の 1024バイトのプレースホルダーパターンの検出
             byte[] pattern = Encoding.ASCII.GetBytes("c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2");
 
             string fileName = Path.GetFileName(appBinaryFilePath);
