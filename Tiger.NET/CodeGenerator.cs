@@ -157,8 +157,9 @@ namespace Tiger.NET
             string dllPath = Path.Combine(outputDir, $"{baseName}.dll");
             string exePath = Path.Combine(outputDir, $"{baseName}.exe");
 
-            string rawTfw = string.IsNullOrEmpty(options.TargetFramework) ? "net10.0" : options.TargetFramework.ToLower();
-            string targetTfm = rawTfw.StartsWith("net10") ? "net10.0" : "net9.0";
+            // /tfm からターゲットフレームワークを取得
+            string rawTfm = string.IsNullOrEmpty(options.TargetFramework) ? "net10.0" : options.TargetFramework.ToLower();
+            string targetTfm = rawTfm.StartsWith("net10") ? "net10.0" : "net9.0";
             string frameworkVersion = targetTfm == "net10.0" ? "10.0.11" : "9.0.0";
 
             IEnumerable<MetadataReference> references = targetTfm == "net10.0"
@@ -203,7 +204,7 @@ namespace Tiger.NET
                 "}";
             File.WriteAllText(configPath, runtimeConfigContent);
 
-            // 3. apphost.exe から正しくパッチした Native EXE (hello.exe) を作成
+            // 3. apphost.exe を書き換えて Native EXE (hello.exe) を出力
             bool successHost = CreateNativeAppHost(dllPath, exePath);
             if (!successHost)
             {
@@ -303,7 +304,7 @@ namespace Tiger.NET
         {
             byte[] bytes = File.ReadAllBytes(appHostSourcePath);
 
-            // AppHost テンプレートに埋め込まれているプレースホルダー文字列の検索
+            // AppHost 内の 1024バイトのプレースホルダーパターンの検出
             byte[] pattern = Encoding.ASCII.GetBytes("c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2");
 
             string fileName = Path.GetFileName(appBinaryFilePath);
@@ -312,13 +313,11 @@ namespace Tiger.NET
             int index = IndexOfBytes(bytes, pattern);
             if (index != -1)
             {
-                // 1024 バイトのプレースホルダー領域をゼロクリアして新 DLL 名を割り当て
                 Array.Clear(bytes, index, 1024);
                 Array.Copy(replacement, 0, bytes, index, replacement.Length);
             }
             else
             {
-                // 旧バージョン（"apphost.dll\0"）へのフォールバック処理
                 byte[] fallbackPattern = Encoding.UTF8.GetBytes("apphost.dll\0");
                 int fallbackIndex = IndexOfBytes(bytes, fallbackPattern);
                 if (fallbackIndex != -1)
