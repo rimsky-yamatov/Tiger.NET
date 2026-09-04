@@ -24,7 +24,55 @@ namespace Tiger.NET
 
                 // 1. 構文解析（AST生成）
                 Console.WriteLine("[Pipeline] Parsing source code...");
-                ExpNode ast = Parser.Parse(tigerCode);
+
+                ExpNode ast = null;
+
+                // --- Parser.Parse の呼び出し処理 ---
+                // プロジェクトの Lexer / Parser 実装に合わせて自動対応します。
+                // 1) Lexer クラスが存在する場合:
+                // var lexer = new Lexer(tigerCode);
+                // ast = Parser.Parse(lexer);
+
+                // 2) Parse(sourceText, fileName) のオーバーロードが存在する場合:
+                // ast = Parser.Parse(tigerCode, options.SourceFilePath);
+
+                // 3) Parse(Lexer) や Parse(string, string) が見つからない場合の基本呼び出し:
+                try
+                {
+                    // 最初に Lexer を使った呼び出しを試行（リフレクションによる互換性吸収）
+                    var lexerType = Type.GetType("Tiger.NET.Lexer") ?? Type.GetType("Lexer");
+                    if (lexerType != null)
+                    {
+                        var lexerInstance = Activator.CreateInstance(lexerType, tigerCode);
+                        var parseMethod = typeof(Parser).GetMethod("Parse", new[] { lexerType });
+                        if (parseMethod != null)
+                        {
+                            ast = parseMethod.Invoke(null, new[] { lexerInstance }) as ExpNode;
+                        }
+                    }
+
+                    // 上記で見つからない場合、(string, string) 引数の Parse を試行
+                    if (ast == null)
+                    {
+                        var parseMethodTwoArgs = typeof(Parser).GetMethod("Parse", new[] { typeof(string), typeof(string) });
+                        if (parseMethodTwoArgs != null)
+                        {
+                            ast = parseMethodTwoArgs.Invoke(null, new object[] { tigerCode, options.SourceFilePath }) as ExpNode;
+                        }
+                    }
+
+                    // 依然としてヌルの場合、通常呼び出しを試行
+                    if (ast == null)
+                    {
+                        // 既存の Parser.Parse 呼び出し
+                        ast = Parser.Parse(tigerCode, options.SourceFilePath);
+                    }
+                }
+                catch
+                {
+                    // フォールバック: 直接 2 引数呼び出し
+                    ast = Parser.Parse(tigerCode, options.SourceFilePath);
+                }
 
                 if (ast == null)
                 {
@@ -46,7 +94,7 @@ namespace Tiger.NET
                     return false;
                 }
 
-                // 4. SingleFile オプション指定時のパブリッシュ処理 (必要に応じて)
+                // 4. SingleFile オプション指定時のパブリッシュ処理
                 if (options.IsSingleFile)
                 {
                     PublishSingleFile(options);
