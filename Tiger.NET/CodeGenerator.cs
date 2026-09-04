@@ -24,7 +24,7 @@ namespace Tiger.NET
             sb.AppendLine("        }");
             sb.AppendLine("    }");
 
-            // 全標準ライブラリの実装
+            // 標準ライブラリ実装
             sb.AppendLine("    public static class TigerStdLib {");
             sb.AppendLine("        public static void Init() {}");
             sb.AppendLine("        public static void print(object s) => Console.Write(s);");
@@ -68,41 +68,41 @@ namespace Tiger.NET
             {
                 sb.Append($"{indent}if (");
                 EmitExprInline(ifNode.Cond, sb);
-                sb.AppendLine(" != 0) {{");
+                sb.AppendLine(" != 0) {");
                 EmitNode(ifNode.Then, sb, indent + "    ");
                 sb.AppendLine($"{indent}}}");
                 if (ifNode.Else != null)
                 {
-                    sb.AppendLine($"{indent}else {{");
+                    sb.AppendLine($"{indent}else {");
                     EmitNode(ifNode.Else, sb, indent + "    ");
                     sb.AppendLine($"{indent}}}");
                 }
             }
-            else if (node is WhileExpNode whileNode)
-            {
-                sb.Append($"{indent}while (");
-                EmitExprInline(whileNode.Cond, sb);
-                sb.AppendLine(" != 0) {{");
-                EmitNode(whileNode.Body, sb, indent + "    ");
-                sb.AppendLine($"{indent}}}");
+                else if (node is WhileExpNode whileNode)
+                {
+                    sb.Append($"{indent}while (");
+                    EmitExprInline(whileNode.Cond, sb);
+                    sb.AppendLine(" != 0) {");
+                    EmitNode(whileNode.Body, sb, indent + "    ");
+                    sb.AppendLine($"{indent}}}");
+                }
+                else if (node is ForExpNode forNode)
+                {
+                    sb.Append($"{indent}for (dynamic {forNode.VarName} = ");
+                    EmitExprInline(forNode.EscapeStart, sb);
+                    sb.Append($"; {forNode.VarName} <= ");
+                    EmitExprInline(forNode.EscapeEnd, sb);
+                    sb.AppendLine($"; {forNode.VarName}++) {{");
+                    EmitNode(forNode.Body, sb, indent + "    ");
+                    sb.AppendLine($"{indent}}}");
+                }
+                else
+                {
+                    sb.Append(indent);
+                    EmitExprInline(node, sb);
+                    sb.AppendLine(";");
+                }
             }
-            else if (node is ForExpNode forNode)
-            {
-                sb.Append($"{indent}for (dynamic {forNode.VarName} = ");
-                EmitExprInline(forNode.EscapeStart, sb);
-                sb.Append($"; {forNode.VarName} <= ");
-                EmitExprInline(forNode.EscapeEnd, sb);
-                sb.AppendLine($"; {forNode.VarName}++) {{");
-                EmitNode(forNode.Body, sb, indent + "    ");
-                sb.AppendLine($"{indent}}}");
-            }
-            else
-            {
-                sb.Append(indent);
-                EmitExprInline(node, sb);
-                sb.AppendLine(";");
-            }
-        }
 
         private static void EmitExprInline(ExpNode node, StringBuilder sb)
         {
@@ -157,6 +157,21 @@ namespace Tiger.NET
                 _ => OutputKind.ConsoleApplication
             };
 
+            // 指定された TFM の切り替え
+            string targetTfm = options.TargetFramework.ToLower();
+            string frameworkVersion = "10.0.0";
+
+            if (targetTfm == "net9.0" || targetTfm == "net9")
+            {
+                targetTfm = "net9.0";
+                frameworkVersion = "9.0.0";
+            }
+            else
+            {
+                targetTfm = "net10.0";
+                frameworkVersion = "10.0.0";
+            }
+
             var compilation = CSharpCompilation.Create(
                 assemblyName,
                 syntaxTrees: new[] { syntaxTree },
@@ -180,26 +195,28 @@ namespace Tiger.NET
                 }
             }
 
-            // .NET 10 対応の実行時ランタイム構成ファイル (.runtimeconfig.json) の自動出力
+            // 指定バージョンに応じた .runtimeconfig.json を出力
             if (options.TargetType != OutputType.Dll)
             {
                 string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
                 string configPath = Path.Combine(dir, $"{assemblyName}.runtimeconfig.json");
 
-                string runtimeConfigContent = @"{
-  ""runtimeOptions"": {
-    ""tfm"": ""net10.0"",
-    ""framework"": {
-      ""name"": ""Microsoft.NETCore.App"",
-      ""version"": ""10.0.0""
-    },
-    ""rollForward"": ""LatestMinor""
-  }
-}";
+                string runtimeConfigContent = $$"""
+                {
+                  "runtimeOptions": {
+                    "tfm": "{{targetTfm}}",
+                    "framework": {
+                      "name": "Microsoft.NETCore.App",
+                      "version": "{{frameworkVersion}}"
+                    },
+                    "rollForward": "LatestMajor"
+                  }
+                }
+                """;
                 File.WriteAllText(configPath, runtimeConfigContent);
             }
 
-            Console.WriteLine($"[Success] Primary Assembly Generated: {options.OutputFilePath}");
+            Console.WriteLine($"[Success] Assembly Generated ({targetTfm}): {options.OutputFilePath}");
             return true;
         }
     }
