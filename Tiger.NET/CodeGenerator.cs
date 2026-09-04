@@ -172,7 +172,7 @@ namespace Tiger.NET
                 options: new CSharpCompilationOptions(OutputKind.ConsoleApplication, optimizationLevel: OptimizationLevel.Release)
             );
 
-            // 1. hello.dll をコンパイル生成
+            // 1. hello.dll を生成
             using (var stream = File.Create(dllPath))
             {
                 var result = compilation.Emit(stream);
@@ -203,7 +203,7 @@ namespace Tiger.NET
                 "}";
             File.WriteAllText(configPath, runtimeConfigContent);
 
-            // 3. 自前ロジックで apphost.exe を書き換えて hello.exe を生成
+            // 3. apphost.exe から正しくパッチした Native EXE (hello.exe) を作成
             bool successHost = CreateNativeAppHost(dllPath, exePath);
             if (!successHost)
             {
@@ -297,22 +297,35 @@ namespace Tiger.NET
         }
     }
 
-    // 外部 NuGet 不要の AppHost バイナリ書き換えクラス
     public static class HostModelUtils
     {
         public static void CreateStandaloneHost(string appHostSourcePath, string appHostDestinationPath, string appBinaryFilePath)
         {
             byte[] bytes = File.ReadAllBytes(appHostSourcePath);
 
-            // apphost.exe 内のデフォルト埋め込みプレースホルダーバイト列 ("apphost.dll\0")
-            byte[] pattern = Encoding.UTF8.GetBytes("apphost.dll\0");
-            byte[] replacement = Encoding.UTF8.GetBytes(Path.GetFileName(appBinaryFilePath) + "\0");
+            // AppHost テンプレートに埋め込まれているプレースホルダー文字列の検索
+            byte[] pattern = Encoding.ASCII.GetBytes("c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2");
+
+            string fileName = Path.GetFileName(appBinaryFilePath);
+            byte[] replacement = Encoding.UTF8.GetBytes(fileName + "\0");
 
             int index = IndexOfBytes(bytes, pattern);
             if (index != -1)
             {
-                Array.Clear(bytes, index, pattern.Length);
+                // 1024 バイトのプレースホルダー領域をゼロクリアして新 DLL 名を割り当て
+                Array.Clear(bytes, index, 1024);
                 Array.Copy(replacement, 0, bytes, index, replacement.Length);
+            }
+            else
+            {
+                // 旧バージョン（"apphost.dll\0"）へのフォールバック処理
+                byte[] fallbackPattern = Encoding.UTF8.GetBytes("apphost.dll\0");
+                int fallbackIndex = IndexOfBytes(bytes, fallbackPattern);
+                if (fallbackIndex != -1)
+                {
+                    Array.Clear(bytes, fallbackIndex, fallbackPattern.Length);
+                    Array.Copy(replacement, 0, bytes, fallbackIndex, replacement.Length);
+                }
             }
 
             File.WriteAllBytes(appHostDestinationPath, bytes);
