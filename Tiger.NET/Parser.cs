@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Xml.Linq;
 
 namespace Tiger.NET
 {
@@ -45,7 +44,7 @@ namespace Tiger.NET
                     if (Current.Type == TokenType.Colon)
                     {
                         Consume(TokenType.Colon);
-                        Consume(TokenType.Identifier); // 型指定をスキップ
+                        Consume(TokenType.Identifier);
                     }
                     Consume(TokenType.Assign);
                     ExpNode init = ParseExp();
