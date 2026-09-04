@@ -164,18 +164,38 @@ namespace Tiger.NET
                 options: new CSharpCompilationOptions(outputKind, optimizationLevel: OptimizationLevel.Release)
             );
 
-            using var stream = File.Create(options.OutputFilePath);
-            var result = compilation.Emit(stream);
-
-            if (!result.Success)
+            using (var stream = File.Create(options.OutputFilePath))
             {
-                Console.WriteLine("[Error] Compilation Failed:");
-                foreach (var diagnostic in result.Diagnostics)
+                var result = compilation.Emit(stream);
+
+                if (!result.Success)
                 {
-                    if (diagnostic.Severity == DiagnosticSeverity.Error)
-                        Console.WriteLine($"  {diagnostic.Id}: {diagnostic.GetMessage()}");
+                    Console.WriteLine("[Error] Compilation Failed:");
+                    foreach (var diagnostic in result.Diagnostics)
+                    {
+                        if (diagnostic.Severity == DiagnosticSeverity.Error)
+                            Console.WriteLine($"  {diagnostic.Id}: {diagnostic.GetMessage()}");
+                    }
+                    return false;
                 }
-                return false;
+            }
+
+            // 実行時ランタイム構成ファイル (.runtimeconfig.json) の自動出力
+            if (options.TargetType != OutputType.Dll)
+            {
+                string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
+                string configPath = Path.Combine(dir, $"{assemblyName}.runtimeconfig.json");
+
+                string runtimeConfigContent = @"{
+  ""runtimeOptions"": {
+    ""tfm"": ""net9.0"",
+    ""framework"": {
+      ""name"": ""Microsoft.NETCore.App"",
+      ""version"": ""9.0.0""
+    }
+  }
+}";
+                File.WriteAllText(configPath, runtimeConfigContent);
             }
 
             Console.WriteLine($"[Success] Primary Assembly Generated: {options.OutputFilePath}");
