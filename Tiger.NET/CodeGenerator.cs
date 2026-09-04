@@ -68,41 +68,45 @@ namespace Tiger.NET
             {
                 sb.Append($"{indent}if (");
                 EmitExprInline(ifNode.Cond, sb);
-                sb.AppendLine(" != 0) {");
+                sb.AppendLine(" != 0)");
+                sb.AppendLine($"{indent}{{");
                 EmitNode(ifNode.Then, sb, indent + "    ");
                 sb.AppendLine($"{indent}}}");
                 if (ifNode.Else != null)
                 {
-                    sb.AppendLine($"{indent}else {");
+                    sb.AppendLine($"{indent}else");
+                    sb.AppendLine($"{indent}{{");
                     EmitNode(ifNode.Else, sb, indent + "    ");
                     sb.AppendLine($"{indent}}}");
                 }
             }
-                else if (node is WhileExpNode whileNode)
-                {
-                    sb.Append($"{indent}while (");
-                    EmitExprInline(whileNode.Cond, sb);
-                    sb.AppendLine(" != 0) {");
-                    EmitNode(whileNode.Body, sb, indent + "    ");
-                    sb.AppendLine($"{indent}}}");
-                }
-                else if (node is ForExpNode forNode)
-                {
-                    sb.Append($"{indent}for (dynamic {forNode.VarName} = ");
-                    EmitExprInline(forNode.EscapeStart, sb);
-                    sb.Append($"; {forNode.VarName} <= ");
-                    EmitExprInline(forNode.EscapeEnd, sb);
-                    sb.AppendLine($"; {forNode.VarName}++) {{");
-                    EmitNode(forNode.Body, sb, indent + "    ");
-                    sb.AppendLine($"{indent}}}");
-                }
-                else
-                {
-                    sb.Append(indent);
-                    EmitExprInline(node, sb);
-                    sb.AppendLine(";");
-                }
+            else if (node is WhileExpNode whileNode)
+            {
+                sb.Append($"{indent}while (");
+                EmitExprInline(whileNode.Cond, sb);
+                sb.AppendLine(" != 0)");
+                sb.AppendLine($"{indent}{{");
+                EmitNode(whileNode.Body, sb, indent + "    ");
+                sb.AppendLine($"{indent}}}");
             }
+            else if (node is ForExpNode forNode)
+            {
+                sb.Append($"{indent}for (dynamic {forNode.VarName} = ");
+                EmitExprInline(forNode.EscapeStart, sb);
+                sb.Append($"; {forNode.VarName} <= ");
+                EmitExprInline(forNode.EscapeEnd, sb);
+                sb.AppendLine($"; {forNode.VarName}++)");
+                sb.AppendLine($"{indent}{{");
+                EmitNode(forNode.Body, sb, indent + "    ");
+                sb.AppendLine($"{indent}}}");
+            }
+            else
+            {
+                sb.Append(indent);
+                EmitExprInline(node, sb);
+                sb.AppendLine(";");
+            }
+        }
 
         private static void EmitExprInline(ExpNode node, StringBuilder sb)
         {
@@ -157,7 +161,6 @@ namespace Tiger.NET
                 _ => OutputKind.ConsoleApplication
             };
 
-            // 指定された TFM の切り替え
             string targetTfm = options.TargetFramework.ToLower();
             string frameworkVersion = "10.0.0";
 
@@ -195,24 +198,22 @@ namespace Tiger.NET
                 }
             }
 
-            // 指定バージョンに応じた .runtimeconfig.json を出力
             if (options.TargetType != OutputType.Dll)
             {
                 string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
                 string configPath = Path.Combine(dir, $"{assemblyName}.runtimeconfig.json");
 
-                string runtimeConfigContent = $$"""
-                {
-                  "runtimeOptions": {
-                    "tfm": "{{targetTfm}}",
-                    "framework": {
-                      "name": "Microsoft.NETCore.App",
-                      "version": "{{frameworkVersion}}"
-                    },
-                    "rollForward": "LatestMajor"
-                  }
-                }
-                """;
+                string runtimeConfigContent = "{\n" +
+                    "  \"runtimeOptions\": {\n" +
+                    $"    \"tfm\": \"{targetTfm}\",\n" +
+                    "    \"framework\": {\n" +
+                    "      \"name\": \"Microsoft.NETCore.App\",\n" +
+                    $"      \"version\": \"{frameworkVersion}\"\n" +
+                    "    },\n" +
+                    "    \"rollForward\": \"LatestMajor\"\n" +
+                    "  }\n" +
+                    "}";
+
                 File.WriteAllText(configPath, runtimeConfigContent);
             }
 
