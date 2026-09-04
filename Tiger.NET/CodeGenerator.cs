@@ -65,10 +65,29 @@ namespace Tiger.NET
             }
             sb.AppendLine(")");
             sb.AppendLine($"{indent}{{");
-            sb.Append($"{indent}    return ");
-            EmitExprInline(fn.Body, sb);
-            sb.AppendLine(";");
+
+            if (IsVoidExpression(fn.Body))
+            {
+                EmitNode(fn.Body, sb, indent + "    ");
+                sb.AppendLine($"{indent}    return 0;");
+            }
+            else
+            {
+                sb.Append($"{indent}    return ");
+                EmitExprInline(fn.Body, sb);
+                sb.AppendLine(";");
+            }
+
             sb.AppendLine($"{indent}}}");
+        }
+
+        private static bool IsVoidExpression(ExpNode node)
+        {
+            if (node is CallExpNode c)
+            {
+                return c.FuncName is "print" or "printline" or "printint" or "flush" or "exit";
+            }
+            return node is LetExpNode || node is WhileExpNode || node is ForExpNode || node is BreakExpNode;
         }
 
         private static void EmitNode(ExpNode node, StringBuilder sb, string indent)
