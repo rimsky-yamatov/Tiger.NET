@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Basic.Reference.Assemblies;
+using Microsoft.NETCore.HostModel.AppHost; // Microsoft.NETCore.HostModel が必要です
 
 namespace Tiger.NET
 {
@@ -151,31 +152,31 @@ namespace Tiger.NET
         public static bool CompileToAssembly(string csharpCode, CompilerOptions options)
         {
             SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(csharpCode);
-            string assemblyName = Path.GetFileNameWithoutExtension(options.OutputFilePath);
+            string baseName = Path.GetFileNameWithoutExtension(options.OutputFilePath);
+            string outputDir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? Directory.GetCurrentDirectory();
 
-            OutputKind outputKind = OutputKind.ConsoleApplication;
-            string targetTypeName = options.TargetType.ToString().ToLower();
-            if (targetTypeName.Contains("dll")) outputKind = OutputKind.DynamicallyLinkedLibrary;
-            else if (targetTypeName.Contains("win")) outputKind = OutputKind.WindowsApplication;
+            // 出力する主要なアセンブリは常に DLL としてコンパイルする
+            string dllPath = Path.Combine(outputDir, $"{baseName}.dll");
+            string exePath = Path.Combine(outputDir, $"{baseName}.exe");
 
             string rawTfw = string.IsNullOrEmpty(options.TargetFramework) ? "net10.0" : options.TargetFramework.ToLower();
-
-            // TFM の正規化 (例: net10.0.11 -> net10.0)
             string targetTfm = rawTfw.StartsWith("net10") ? "net10.0" : "net9.0";
-            string frameworkVersion = targetTfm == "net10.0" ? "10.0.0" : "9.0.0";
+            string frameworkVersion = targetTfm == "net10.0" ? "10.0.11" : "9.0.0";
 
             IEnumerable<MetadataReference> references = targetTfm == "net10.0"
                 ? GetNet10References()
                 : Net90.References.All;
 
+            // Roslyn には ConsoleApplication を指定して DLL を生成
             var compilation = CSharpCompilation.Create(
-                assemblyName,
+                baseName,
                 syntaxTrees: new[] { syntaxTree },
                 references: references,
-                options: new CSharpCompilationOptions(outputKind, optimizationLevel: OptimizationLevel.Release)
+                options: new CSharpCompilationOptions(OutputKind.ConsoleApplication, optimizationLevel: OptimizationLevel.Release)
             );
 
-            using (var stream = File.Create(options.OutputFilePath))
+            // 1. まず hello.dll を生成
+            using (var stream = File.Create(dllPath))
             {
                 var result = compilation.Emit(stream);
 
@@ -191,30 +192,65 @@ namespace Tiger.NET
                 }
             }
 
-            if (outputKind != OutputKind.DynamicallyLinkedLibrary)
+            // 2. hello.runtimeconfig.json を生成
+            string configPath = Path.Combine(outputDir, $"{baseName}.runtimeconfig.json");
+            string runtimeConfigContent = "{\n" +
+                "  \"runtimeOptions\": {\n" +
+                $"    \"tfm\": \"{targetTfm}\",\n" +
+                "    \"framework\": {\n" +
+                "      \"name\": \"Microsoft.NETCore.App\",\n" +
+                $"      \"version\": \"{frameworkVersion}\"\n" +
+                "    },\n" +
+                "    \"rollForward\": \"LatestMinor\"\n" +
+                "  }\n" +
+                "}";
+            File.WriteAllText(configPath, runtimeConfigContent);
+
+            // 3. EXE ランチャーの生成
+            bool successHost = CreateNativeAppHost(dllPath, exePath, targetTfm);
+            if (!successHost)
             {
-                string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
-                if (string.IsNullOrEmpty(dir)) dir = Directory.GetCurrentDirectory();
-
-                string configPath = Path.Combine(dir, $"{assemblyName}.runtimeconfig.json");
-
-                // .NET 10.0.x ランタイムに柔軟にフィットさせる標準構成
-                string runtimeConfigContent = "{\n" +
-                    "  \"runtimeOptions\": {\n" +
-                    $"    \"tfm\": \"{targetTfm}\",\n" +
-                    "    \"framework\": {\n" +
-                    "      \"name\": \"Microsoft.NETCore.App\",\n" +
-                    $"      \"version\": \"{frameworkVersion}\"\n" +
-                    "    },\n" +
-                    "    \"rollForward\": \"LatestMinor\"\n" +
-                    "  }\n" +
-                    "}";
-
-                File.WriteAllText(configPath, runtimeConfigContent);
+                Console.WriteLine("[Warning] Native AppHost generation skipped or failed. Use 'dotnet " + baseName + ".dll' to run.");
             }
 
-            Console.WriteLine($"[Success] Assembly Generated ({targetTfm}): {options.OutputFilePath}");
+            Console.WriteLine($"[Success] Assembly Generated ({targetTfm}): {dllPath}");
+            if (File.Exists(exePath))
+            {
+                Console.WriteLine($"[Success] Native Executable Launcher Created: {exePath}");
+            }
+
             return true;
+        }
+
+        private static bool CreateNativeAppHost(string dllPath, string destinationExePath, string targetTfm)
+        {
+            try
+            {
+                string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+                string appHostPackDir = Path.Combine(programFiles, "dotnet", "packs", "Microsoft.NETCore.App.Host.win-x64");
+
+                if (!Directory.Exists(appHostPackDir)) return false;
+
+                var versionDirs = Directory.GetDirectories(appHostPackDir, "10.0.*");
+                if (versionDirs.Length == 0) versionDirs = Directory.GetDirectories(appHostPackDir, "*");
+                if (versionDirs.Length == 0) return false;
+
+                Array.Sort(versionDirs);
+                string templateAppHostPath = Path.Combine(versionDirs[^1], "runtimes", "win-x64", "native", "apphost.exe");
+
+                if (!File.Exists(templateAppHostPath)) return false;
+
+                string appDllName = Path.GetFileName(dllPath);
+
+                // AppHostBinaryModifier を用いて apphost.exe 内のバイナリのプレースホルダーを dll 名に修正して出力
+                HostModelUtils.CreateStandaloneHost(templateAppHostPath, destinationExePath, appDllName);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AppHost Error] {ex.Message}");
+                return false;
+            }
         }
 
         private static IEnumerable<MetadataReference> GetNet10References()
@@ -222,7 +258,6 @@ namespace Tiger.NET
             var list = new List<MetadataReference>();
             string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
 
-            // 1. Ref パックから探索
             string refPackDir = Path.Combine(programFiles, "dotnet", "packs", "Microsoft.NETCore.App.Ref");
             if (Directory.Exists(refPackDir))
             {
@@ -242,7 +277,6 @@ namespace Tiger.NET
                 }
             }
 
-            // 2. インストール済み Shared ランタイム (10.0.11 等) からアセンブリを直接参照
             string sharedDir = Path.Combine(programFiles, "dotnet", "shared", "Microsoft.NETCore.App");
             if (Directory.Exists(sharedDir))
             {
@@ -265,19 +299,21 @@ namespace Tiger.NET
                 }
             }
 
-            // 3. TRUSTED_PLATFORM_ASSEMBLIES (フォールバック)
-            var trusted = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
-            foreach (var path in trusted)
-            {
-                string name = Path.GetFileName(path);
-                if (!name.StartsWith("System.Private.", StringComparison.OrdinalIgnoreCase) &&
-                    !name.StartsWith("clr", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (File.Exists(path)) list.Add(MetadataReference.CreateFromFile(path));
-                }
-            }
-
             return list;
+        }
+    }
+
+    // AppHost の書き換え用ヘルパー
+    public static class HostModelUtils
+    {
+        public static void CreateStandaloneHost(string appHostSourcePath, string appHostDestinationPath, string appBinaryFilePath)
+        {
+            // Microsoft.NETCore.HostModel パッケージの AppHost.Create を使用
+            HostModel.AppHost.HostWriter.CreateAppHost(
+                appHostSourceFilePath: appHostSourcePath,
+                appHostDestinationFilePath: appHostDestinationPath,
+                appBinaryFilePath: appBinaryFilePath
+            );
         }
     }
 }
