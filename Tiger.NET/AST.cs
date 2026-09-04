@@ -1,53 +1,124 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.Text;
 
 namespace Tiger.NET
 {
-    public abstract class ExpNode { }
-
-    public class StringLiteralNode : ExpNode
+    public enum TokenType
     {
+        Let, In, End, Var, If, Then, Else, While, Do, For, To, Break,
+        Assign, Plus, Minus, Multiply, Divide, Equal, NotEqual, LessThan,
+        LessEqual, GreaterThan, GreaterEqual, LParen, RParen, Comma, Colon,
+        Semicolon, String, Int, Identifier, EOF
+    }
+
+    public class Token
+    {
+        public TokenType Type { get; set; }
         public string Value { get; set; }
-        public StringLiteralNode(string val) => Value = val;
+        public Token(TokenType type, string value = "") { Type = type; Value = value; }
     }
 
-    public class IntLiteralNode : ExpNode
+    public class Lexer
     {
-        public int Value { get; set; }
-        public IntLiteralNode(int val) => Value = val;
-    }
+        private readonly string _src;
+        private int _pos;
 
-    public class VarDeclNode : ExpNode
-    {
-        public string Name { get; set; }
-        public ExpNode Init { get; set; }
-        public VarDeclNode(string name, ExpNode init) { Name = name; Init = init; }
-    }
+        public Lexer(string src) => _src = src;
 
-    public class CallExpNode : ExpNode
-    {
-        public string FuncName { get; set; }
-        public List<ExpNode> Args { get; set; }
-        public CallExpNode(string funcName, List<ExpNode> args) { FuncName = funcName; Args = args; }
-    }
+        public List<Token> Tokenize()
+        {
+            var tokens = new List<Token>();
+            while (_pos < _src.Length)
+            {
+                char c = _src[_pos];
+                if (char.IsWhiteSpace(c)) { _pos++; continue; }
 
-    public class LetExpNode : ExpNode
-    {
-        public List<ExpNode> Decs { get; set; }
-        public List<ExpNode> Body { get; set; }
-        public LetExpNode(List<ExpNode> decs, List<ExpNode> body) { Decs = decs; Body = body; }
-    }
+                // コメント処理 /* ... */
+                if (c == '/' && LookAhead(1) == '*')
+                {
+                    _pos += 2;
+                    while (_pos < _src.Length - 1 && !(_src[_pos] == '*' && _src[_pos + 1] == '/')) _pos++;
+                    _pos += 2;
+                    continue;
+                }
 
-    public class BinaryExpNode : ExpNode
-    {
-        public string Op { get; set; }
-        public ExpNode Left { get; set; }
-        public ExpNode Right { get; set; }
-        public BinaryExpNode(string op, ExpNode left, ExpNode right) { Op = op; Left = left; Right = right; }
-    }
+                if (c == '"')
+                {
+                    _pos++;
+                    var sb = new StringBuilder();
+                    while (_pos < _src.Length && _src[_pos] != '"')
+                    {
+                        if (_src[_pos] == '\\' && _pos + 1 < _src.Length)
+                        {
+                            _pos++;
+                            if (_src[_pos] == 'n') sb.Append('\n');
+                            else if (_src[_pos] == 't') sb.Append('\t');
+                            else sb.Append(_src[_pos]);
+                        }
+                        else { sb.Append(_src[_pos]); }
+                        _pos++;
+                    }
+                    _pos++;
+                    tokens.Add(new Token(TokenType.String, sb.ToString()));
+                    continue;
+                }
 
-    public class VarAccessNode : ExpNode
-    {
-        public string Name { get; set; }
-        public VarAccessNode(string name) => Name = name;
+                if (char.IsDigit(c))
+                {
+                    var sb = new StringBuilder();
+                    while (_pos < _src.Length && char.IsDigit(_src[_pos])) sb.Append(_src[_pos++]);
+                    tokens.Add(new Token(TokenType.Int, sb.ToString()));
+                    continue;
+                }
+
+                if (char.IsLetter(c))
+                {
+                    var sb = new StringBuilder();
+                    while (_pos < _src.Length && (char.IsLetterOrDigit(_src[_pos]) || _src[_pos] == '_')) sb.Append(_src[_pos++]);
+                    string val = sb.ToString();
+                    TokenType t = val switch
+                    {
+                        "let" => TokenType.Let,
+                        "in" => TokenType.In,
+                        "end" => TokenType.End,
+                        "var" => TokenType.Var,
+                        "if" => TokenType.If,
+                        "then" => TokenType.Then,
+                        "else" => TokenType.Else,
+                        "while" => TokenType.While,
+                        "do" => TokenType.Do,
+                        "for" => TokenType.For,
+                        "to" => TokenType.To,
+                        "break" => TokenType.Break,
+                        _ => TokenType.Identifier
+                    };
+                    tokens.Add(new Token(t, val));
+                    continue;
+                }
+
+                if (c == ':' && LookAhead(1) == '=') { _pos += 2; tokens.Add(new Token(TokenType.Assign, ":=")); continue; }
+                if (c == '<' && LookAhead(1) == '>') { _pos += 2; tokens.Add(new Token(TokenType.NotEqual, "<>")); continue; }
+                if (c == '<' && LookAhead(1) == '=') { _pos += 2; tokens.Add(new Token(TokenType.LessEqual, "<=")); continue; }
+                if (c == '>' && LookAhead(1) == '=') { _pos += 2; tokens.Add(new Token(TokenType.GreaterEqual, ">=")); continue; }
+                if (c == '<') { _pos++; tokens.Add(new Token(TokenType.LessThan, "<")); continue; }
+                if (c == '>') { _pos++; tokens.Add(new Token(TokenType.GreaterThan, ">")); continue; }
+                if (c == '=') { _pos++; tokens.Add(new Token(TokenType.Equal, "=")); continue; }
+                if (c == '+') { _pos++; tokens.Add(new Token(TokenType.Plus, "+")); continue; }
+                if (c == '-') { _pos++; tokens.Add(new Token(TokenType.Minus, "-")); continue; }
+                if (c == '*') { _pos++; tokens.Add(new Token(TokenType.Multiply, "*")); continue; }
+                if (c == '/') { _pos++; tokens.Add(new Token(TokenType.Divide, "/")); continue; }
+                if (c == '(') { _pos++; tokens.Add(new Token(TokenType.LParen, "(")); continue; }
+                if (c == ')') { _pos++; tokens.Add(new Token(TokenType.RParen, ")")); continue; }
+                if (c == ',') { _pos++; tokens.Add(new Token(TokenType.Comma, ",")); continue; }
+                if (c == ';') { _pos++; tokens.Add(new Token(TokenType.Semicolon, ";")); continue; }
+
+                _pos++;
+            }
+            tokens.Add(new Token(TokenType.EOF));
+            return tokens;
+        }
+
+        private char LookAhead(int offset) => (_pos + offset < _src.Length) ? _src[_pos + offset] : '\0';
     }
 }

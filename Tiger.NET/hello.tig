@@ -1,0 +1,5 @@
+let
+    var msg := "Hello, World!"
+in
+    printline(msg)
+end
