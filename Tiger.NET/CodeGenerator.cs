@@ -180,7 +180,7 @@ namespace Tiger.NET
                 }
             }
 
-            // 実行時ランタイム構成ファイル (.runtimeconfig.json) の自動出力
+            // .NET 10 対応の実行時ランタイム構成ファイル (.runtimeconfig.json) の自動出力
             if (options.TargetType != OutputType.Dll)
             {
                 string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
@@ -188,11 +188,12 @@ namespace Tiger.NET
 
                 string runtimeConfigContent = @"{
   ""runtimeOptions"": {
-    ""tfm"": ""net9.0"",
+    ""tfm"": ""net10.0"",
     ""framework"": {
       ""name"": ""Microsoft.NETCore.App"",
-      ""version"": ""9.0.0""
-    }
+      ""version"": ""10.0.0""
+    },
+    ""rollForward"": ""LatestMinor""
   }
 }";
                 File.WriteAllText(configPath, runtimeConfigContent);
