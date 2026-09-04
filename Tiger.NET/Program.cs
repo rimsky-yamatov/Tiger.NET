@@ -10,7 +10,6 @@ namespace Tiger.NET
             if (args.Length == 0)
             {
                 Console.WriteLine("Tiger.NET Compiler");
-                Console.WriteLine("Usage: Tiger.NET.exe <source.tig> [/O:<output.exe>] [/target:exe|winexe|dll] [/tfm:net9.0|net10.0]");
                 return;
             }
 
@@ -22,23 +21,13 @@ namespace Tiger.NET
                 {
                     options.OutputFilePath = arg.Substring(3);
                 }
-                else if (arg.StartsWith("/target:"))
-                {
-                    string target = arg.Substring(8).ToLower();
-                    options.TargetType = target switch
-                    {
-                        "winexe" => OutputType.WindowsApplication,
-                        "dll" => OutputType.Dll,
-                        _ => OutputType.ConsoleApplication
-                    };
-                }
                 else if (arg.StartsWith("/tfm:"))
                 {
                     options.TargetFramework = arg.Substring(5).ToLower();
                 }
                 else if (arg.Equals("/singlefile", StringComparison.OrdinalIgnoreCase))
                 {
-                    options.SingleFile = true;
+                    options.IsSingleFile = true;
                 }
                 else if (!arg.StartsWith("/"))
                 {
@@ -52,28 +41,8 @@ namespace Tiger.NET
                 return;
             }
 
-            try
-            {
-                string tigerCode = File.ReadAllText(options.SourceFilePath);
-
-                // 1. 構文解析（抽象構文木の生成）
-                ExpNode ast = Parser.Parse(tigerCode);
-
-                // 2. C# コードの生成
-                string csharpCode = CodeGenerator.EmitCSharp(ast);
-
-                // 3. Roslyn による直接コンパイルと runtimeconfig.json の出力
-                bool success = CodeGenerator.CompileToAssembly(csharpCode, options);
-
-                if (success)
-                {
-                    Console.WriteLine($"[Success] Compilation finished -> {options.OutputFilePath}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Error] Compilation failed: {ex.Message}");
-            }
+            // CompilerPipeline に処理を委譲する場合は Pipeline を呼び出す
+            CompilerPipeline.Run(options);
         }
     }
 }
