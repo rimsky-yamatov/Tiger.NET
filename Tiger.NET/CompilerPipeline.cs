@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Reflection;
 using System.Diagnostics;
 
 namespace Tiger.NET
@@ -25,54 +26,7 @@ namespace Tiger.NET
                 // 1. 構文解析（AST生成）
                 Console.WriteLine("[Pipeline] Parsing source code...");
 
-                ExpNode ast = null;
-
-                // --- Parser.Parse の呼び出し処理 ---
-                // プロジェクトの Lexer / Parser 実装に合わせて自動対応します。
-                // 1) Lexer クラスが存在する場合:
-                // var lexer = new Lexer(tigerCode);
-                // ast = Parser.Parse(lexer);
-
-                // 2) Parse(sourceText, fileName) のオーバーロードが存在する場合:
-                // ast = Parser.Parse(tigerCode, options.SourceFilePath);
-
-                // 3) Parse(Lexer) や Parse(string, string) が見つからない場合の基本呼び出し:
-                try
-                {
-                    // 最初に Lexer を使った呼び出しを試行（リフレクションによる互換性吸収）
-                    var lexerType = Type.GetType("Tiger.NET.Lexer") ?? Type.GetType("Lexer");
-                    if (lexerType != null)
-                    {
-                        var lexerInstance = Activator.CreateInstance(lexerType, tigerCode);
-                        var parseMethod = typeof(Parser).GetMethod("Parse", new[] { lexerType });
-                        if (parseMethod != null)
-                        {
-                            ast = parseMethod.Invoke(null, new[] { lexerInstance }) as ExpNode;
-                        }
-                    }
-
-                    // 上記で見つからない場合、(string, string) 引数の Parse を試行
-                    if (ast == null)
-                    {
-                        var parseMethodTwoArgs = typeof(Parser).GetMethod("Parse", new[] { typeof(string), typeof(string) });
-                        if (parseMethodTwoArgs != null)
-                        {
-                            ast = parseMethodTwoArgs.Invoke(null, new object[] { tigerCode, options.SourceFilePath }) as ExpNode;
-                        }
-                    }
-
-                    // 依然としてヌルの場合、通常呼び出しを試行
-                    if (ast == null)
-                    {
-                        // 既存の Parser.Parse 呼び出し
-                        ast = Parser.Parse(tigerCode, options.SourceFilePath);
-                    }
-                }
-                catch
-                {
-                    // フォールバック: 直接 2 引数呼び出し
-                    ast = Parser.Parse(tigerCode, options.SourceFilePath);
-                }
+                ExpNode? ast = InvokeParser(tigerCode, options.SourceFilePath);
 
                 if (ast == null)
                 {
@@ -109,6 +63,119 @@ namespace Tiger.NET
                 Console.WriteLine(ex.StackTrace);
                 return false;
             }
+        }
+
+        private static ExpNode? InvokeParser(string tigerCode, string sourceFilePath)
+        {
+            Type? parserType = typeof(CompilerPipeline).Assembly.GetType("Tiger.NET.Parser")
+                            ?? typeof(CompilerPipeline).Assembly.GetType("Parser");
+
+            if (parserType == null)
+            {
+                Console.WriteLine("[Error] Parser type not found in assembly.");
+                return null;
+            }
+
+            // Parser 内の Parse メソッドをすべて検索
+            var methods = parserType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
+
+            foreach (var m in methods)
+            {
+                if (m.Name != "Parse") continue;
+
+                var parameters = m.GetParameters();
+
+                try
+                {
+                    // 1. 引数なしの Parse()
+                    if (parameters.Length == 0 && !m.IsStatic)
+                    {
+                        // インスタンス作成を試行 (Lexer 等を探す)
+                        object? parserInstance = CreateParserInstance(parserType, tigerCode);
+                        if (parserInstance != null)
+                        {
+                            return m.Invoke(parserInstance, null) as ExpNode;
+                        }
+                    }
+                    // 2. 引数1つの Parse(arg)
+                    else if (parameters.Length == 1)
+                    {
+                        Type pType = parameters[0].ParameterType;
+
+                        // Parse(string)
+                        if (pType == typeof(string))
+                        {
+                            object? target = m.IsStatic ? null : CreateParserInstance(parserType, tigerCode);
+                            return m.Invoke(target, new object[] { tigerCode }) as ExpNode;
+                        }
+
+                        // Parse(Lexer) や Parse(List<Token>)
+                        object? argObj = CreateLexerOrTokenList(pType, tigerCode);
+                        if (argObj != null)
+                        {
+                            object? target = m.IsStatic ? null : CreateParserInstance(parserType, tigerCode);
+                            return m.Invoke(target, new object[] { argObj }) as ExpNode;
+                        }
+                    }
+                    // 3. 引数2つの Parse(arg1, arg2)
+                    else if (parameters.Length == 2)
+                    {
+                        object? target = m.IsStatic ? null : CreateParserInstance(parserType, tigerCode);
+                        return m.Invoke(target, new object[] { tigerCode, sourceFilePath }) as ExpNode;
+                    }
+                }
+                catch
+                {
+                    // 呼び出し失敗時は次のオーバーロードを試行
+                }
+            }
+
+            Console.WriteLine("[Error] Could not find a matching Parse method overload.");
+            return null;
+        }
+
+        private static object? CreateParserInstance(Type parserType, string tigerCode)
+        {
+            var ctors = parserType.GetConstructors();
+            foreach (var ctor in ctors)
+            {
+                var paramsInfo = ctor.GetParameters();
+                if (paramsInfo.Length == 1)
+                {
+                    if (paramsInfo[0].ParameterType == typeof(string))
+                        return ctor.Invoke(new object[] { tigerCode });
+
+                    object? argObj = CreateLexerOrTokenList(paramsInfo[0].ParameterType, tigerCode);
+                    if (argObj != null)
+                        return ctor.Invoke(new object[] { argObj });
+                }
+            }
+            return Activator.CreateInstance(parserType);
+        }
+
+        private static object? CreateLexerOrTokenList(Type targetType, string tigerCode)
+        {
+            try
+            {
+                // Lexer(string) のインスタンス作成
+                var lexerCtor = targetType.GetConstructor(new[] { typeof(string) });
+                if (lexerCtor != null)
+                {
+                    return lexerCtor.Invoke(new object[] { tigerCode });
+                }
+
+                // Lexer クラスが別で存在する場合
+                Type? lexerType = typeof(CompilerPipeline).Assembly.GetType("Tiger.NET.Lexer")
+                               ?? typeof(CompilerPipeline).Assembly.GetType("Lexer");
+
+                if (lexerType != null && targetType.IsAssignableFrom(lexerType))
+                {
+                    return Activator.CreateInstance(lexerType, tigerCode);
+                }
+            }
+            catch { }
+
+            return null;
         }
 
         private static void PublishSingleFile(CompilerOptions options)
