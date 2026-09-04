@@ -154,26 +154,25 @@ namespace Tiger.NET
             SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(csharpCode);
             string assemblyName = Path.GetFileNameWithoutExtension(options.OutputFilePath);
 
-            // OutputType の変換（ToString() チェックにより型名の不整合を回避）
-            string targetTypeName = options.TargetType.ToString().ToLower();
             OutputKind outputKind = OutputKind.ConsoleApplication;
+            string targetTypeName = options.TargetType.ToString().ToLower();
+            if (targetTypeName.Contains("dll")) outputKind = OutputKind.DynamicallyLinkedLibrary;
+            else if (targetTypeName.Contains("win")) outputKind = OutputKind.WindowsApplication;
 
-            if (targetTypeName.Contains("dll"))
-            {
-                outputKind = OutputKind.DynamicallyLinkedLibrary;
-            }
-            else if (targetTypeName.Contains("win"))
-            {
-                outputKind = OutputKind.WindowsApplication;
-            }
+            // 指定された TFM の解析 (/tfm:net10.0 や /tfm:net9.0 等)
+            string rawTfm = string.IsNullOrEmpty(options.TargetFramework) ? "net10.0" : options.TargetFramework.ToLower();
+            string targetTfm;
+            string frameworkVersion;
 
-            string targetTfm = options.TargetFramework?.ToLower() ?? "net10.0";
-            string frameworkVersion = "10.0.0";
-
-            if (targetTfm == "net9.0" || targetTfm == "net9")
+            if (rawTfm.StartsWith("net"))
             {
-                targetTfm = "net9.0";
-                frameworkVersion = "9.0.0";
+                string versionPart = rawTfm.Replace("net", "");
+                if (!versionPart.Contains("."))
+                {
+                    versionPart += ".0";
+                }
+                targetTfm = $"net{versionPart}";
+                frameworkVersion = $"{versionPart}.0";
             }
             else
             {
@@ -184,7 +183,7 @@ namespace Tiger.NET
             var compilation = CSharpCompilation.Create(
                 assemblyName,
                 syntaxTrees: new[] { syntaxTree },
-                references: Net90.References.All,
+                references: Net90.References.All, // 共通参照アセンブリ
                 options: new CSharpCompilationOptions(outputKind, optimizationLevel: OptimizationLevel.Release)
             );
 
@@ -209,6 +208,7 @@ namespace Tiger.NET
                 string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
                 string configPath = Path.Combine(dir, $"{assemblyName}.runtimeconfig.json");
 
+                // 指定された TFM に応じた runtimeconfig.json の動的生成
                 string runtimeConfigContent = "{\n" +
                     "  \"runtimeOptions\": {\n" +
                     $"    \"tfm\": \"{targetTfm}\",\n" +
