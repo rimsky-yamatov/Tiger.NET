@@ -1,83 +1,79 @@
 ﻿using System;
+using System.IO;
 
 namespace Tiger.NET
 {
-    public enum OutputType { ConsoleExe, WindowsExe, Dll }
-
-    public class CompilerOptions
-    {
-        public string OutputFilePath { get; set; } = "a.exe";
-        public OutputType TargetType { get; set; } = OutputType.ConsoleExe;
-        public bool IsSingleFile { get; set; } = false;
-        public bool IsSelfContained { get; set; } = false;
-        public string SourceFilePath { get; set; } = "";
-    }
-
     class Program
     {
         static void Main(string[] args)
         {
             if (args.Length == 0)
             {
-                PrintHelp();
+                Console.WriteLine("Tiger.NET Compiler");
+                Console.WriteLine("Usage: Tiger.NET.exe <source.tig> [/O:<output.exe>] [/target:exe|winexe|dll] [/tfm:net9.0|net10.0]");
                 return;
             }
 
-            var options = ParseArguments(args);
-            if (string.IsNullOrEmpty(options.SourceFilePath))
-            {
-                Console.WriteLine("[Error] Source file missing.");
-                return;
-            }
-
-            var pipeline = new CompilerPipeline(options);
-            pipeline.Execute();
-        }
-
-        static CompilerOptions ParseArguments(string[] args)
-        {
             var options = new CompilerOptions();
-            for (int i = 0; i < args.Length; i++)
+
+            foreach (var arg in args)
             {
-                var arg = args[i];
-                if (arg.StartsWith("/O:", StringComparison.OrdinalIgnoreCase))
+                if (arg.StartsWith("/O:") || arg.StartsWith("/o:"))
                 {
                     options.OutputFilePath = arg.Substring(3);
                 }
-                else if (arg.Equals("/target:dll", StringComparison.OrdinalIgnoreCase))
+                else if (arg.StartsWith("/target:"))
                 {
-                    options.TargetType = OutputType.Dll;
+                    string target = arg.Substring(8).ToLower();
+                    options.TargetType = target switch
+                    {
+                        "winexe" => OutputType.WindowsApplication,
+                        "dll" => OutputType.Dll,
+                        _ => OutputType.ConsoleApplication
+                    };
                 }
-                else if (arg.Equals("/target:winexe", StringComparison.OrdinalIgnoreCase))
+                else if (arg.StartsWith("/tfm:"))
                 {
-                    options.TargetType = OutputType.WindowsExe;
+                    options.TargetFramework = arg.Substring(5).ToLower();
                 }
                 else if (arg.Equals("/singlefile", StringComparison.OrdinalIgnoreCase))
                 {
-                    options.IsSingleFile = true;
+                    options.SingleFile = true;
                 }
-                else if (arg.Equals("/standalone", StringComparison.OrdinalIgnoreCase))
-                {
-                    options.IsSelfContained = true;
-                }
-                else
+                else if (!arg.StartsWith("/"))
                 {
                     options.SourceFilePath = arg;
                 }
             }
-            return options;
-        }
 
-        static void PrintHelp()
-        {
-            Console.WriteLine("Tiger.NET Compiler for .NET Environment");
-            Console.WriteLine("Usage: Tiger.NET <source.tig> [options]");
-            Console.WriteLine("Options:");
-            Console.WriteLine("  /O:<file>        Output file path (e.g. /O:hello.exe)");
-            Console.WriteLine("  /target:dll      Output as Dynamic Link Library (.dll)");
-            Console.WriteLine("  /target:winexe   Output as Windows Application");
-            Console.WriteLine("  /singlefile      Package as Single-file executable");
-            Console.WriteLine("  /standalone      Self-contained deployment (No .NET Runtime required)");
+            if (string.IsNullOrEmpty(options.SourceFilePath) || !File.Exists(options.SourceFilePath))
+            {
+                Console.WriteLine($"[Error] Source file not found: {options.SourceFilePath}");
+                return;
+            }
+
+            try
+            {
+                string tigerCode = File.ReadAllText(options.SourceFilePath);
+
+                // 1. 構文解析（抽象構文木の生成）
+                ExpNode ast = Parser.Parse(tigerCode);
+
+                // 2. C# コードの生成
+                string csharpCode = CodeGenerator.EmitCSharp(ast);
+
+                // 3. Roslyn による直接コンパイルと runtimeconfig.json の出力
+                bool success = CodeGenerator.CompileToAssembly(csharpCode, options);
+
+                if (success)
+                {
+                    Console.WriteLine($"[Success] Compilation finished -> {options.OutputFilePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Error] Compilation failed: {ex.Message}");
+            }
         }
     }
 }
