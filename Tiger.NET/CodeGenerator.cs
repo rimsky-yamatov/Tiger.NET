@@ -154,14 +154,20 @@ namespace Tiger.NET
             SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(csharpCode);
             string assemblyName = Path.GetFileNameWithoutExtension(options.OutputFilePath);
 
-            OutputKind outputKind = options.TargetType switch
-            {
-                OutputType.Dll => OutputKind.DynamicallyLinkedLibrary,
-                OutputType.WindowsExe => OutputKind.WindowsApplication,
-                _ => OutputKind.ConsoleApplication
-            };
+            // OutputType の変換（ToString() チェックにより型名の不整合を回避）
+            string targetTypeName = options.TargetType.ToString().ToLower();
+            OutputKind outputKind = OutputKind.ConsoleApplication;
 
-            string targetTfm = options.TargetFramework.ToLower();
+            if (targetTypeName.Contains("dll"))
+            {
+                outputKind = OutputKind.DynamicallyLinkedLibrary;
+            }
+            else if (targetTypeName.Contains("win"))
+            {
+                outputKind = OutputKind.WindowsApplication;
+            }
+
+            string targetTfm = options.TargetFramework?.ToLower() ?? "net10.0";
             string frameworkVersion = "10.0.0";
 
             if (targetTfm == "net9.0" || targetTfm == "net9")
@@ -198,7 +204,7 @@ namespace Tiger.NET
                 }
             }
 
-            if (options.TargetType != OutputType.Dll)
+            if (outputKind != OutputKind.DynamicallyLinkedLibrary)
             {
                 string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
                 string configPath = Path.Combine(dir, $"{assemblyName}.runtimeconfig.json");
