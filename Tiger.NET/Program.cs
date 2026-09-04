@@ -17,7 +17,7 @@ namespace Tiger.NET
 
             foreach (var arg in args)
             {
-                // /o: 出力ファイル指定
+                // /o: または /O: 出力ファイル指定
                 if (arg.StartsWith("/o:", StringComparison.OrdinalIgnoreCase))
                 {
                     options.OutputFilePath = arg.Substring(3);
