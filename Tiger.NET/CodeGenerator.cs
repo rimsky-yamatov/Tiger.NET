@@ -66,7 +66,6 @@ namespace Tiger.NET
             sb.AppendLine(")");
             sb.AppendLine($"{indent}{{");
 
-            // 関数本体の処理を出力し、最後に安全に 0 を返す構造に変更 (CS0126 回避)
             EmitFunctionBody(fn.Body, sb, indent + "    ");
 
             sb.AppendLine($"{indent}}}");
@@ -78,7 +77,7 @@ namespace Tiger.NET
             {
                 sb.Append($"{indent}if (");
                 EmitExprInline(ifNode.Cond, sb);
-                sb.AppendLine(" != 0)");
+                sb.AppendLine(")");
                 sb.AppendLine($"{indent}{{");
                 EmitFunctionBody(ifNode.Then, sb, indent + "    ");
                 sb.AppendLine($"{indent}}}");
@@ -143,7 +142,7 @@ namespace Tiger.NET
             {
                 sb.Append($"{indent}if (");
                 EmitExprInline(ifNode.Cond, sb);
-                sb.AppendLine(" != 0)");
+                sb.AppendLine(")");
                 sb.AppendLine($"{indent}{{");
                 EmitNode(ifNode.Then, sb, indent + "    ");
                 sb.AppendLine($"{indent}}}");
@@ -159,7 +158,7 @@ namespace Tiger.NET
             {
                 sb.Append($"{indent}while (");
                 EmitExprInline(whileNode.Cond, sb);
-                sb.AppendLine(" != 0)");
+                sb.AppendLine(")");
                 sb.AppendLine($"{indent}{{");
                 EmitNode(whileNode.Body, sb, indent + "    ");
                 sb.AppendLine($"{indent}}}");
