@@ -66,28 +66,59 @@ namespace Tiger.NET
             sb.AppendLine(")");
             sb.AppendLine($"{indent}{{");
 
-            if (IsVoidExpression(fn.Body))
-            {
-                EmitNode(fn.Body, sb, indent + "    ");
-                sb.AppendLine($"{indent}    return 0;");
-            }
-            else
-            {
-                sb.Append($"{indent}    return ");
-                EmitExprInline(fn.Body, sb);
-                sb.AppendLine(";");
-            }
+            // 関数本体の処理を出力し、最後に安全に 0 を返す構造に変更 (CS0126 回避)
+            EmitFunctionBody(fn.Body, sb, indent + "    ");
 
             sb.AppendLine($"{indent}}}");
         }
 
-        private static bool IsVoidExpression(ExpNode node)
+        private static void EmitFunctionBody(ExpNode node, StringBuilder sb, string indent)
         {
-            if (node is CallExpNode c)
+            if (node is IfExpNode ifNode)
             {
-                return c.FuncName is "print" or "printline" or "printint" or "flush" or "exit";
+                sb.Append($"{indent}if (");
+                EmitExprInline(ifNode.Cond, sb);
+                sb.AppendLine(" != 0)");
+                sb.AppendLine($"{indent}{{");
+                EmitFunctionBody(ifNode.Then, sb, indent + "    ");
+                sb.AppendLine($"{indent}}}");
+                if (ifNode.Else != null)
+                {
+                    sb.AppendLine($"{indent}else");
+                    sb.AppendLine($"{indent}{{");
+                    EmitFunctionBody(ifNode.Else, sb, indent + "    ");
+                    sb.AppendLine($"{indent}}}");
+                }
             }
-            return node is LetExpNode || node is WhileExpNode || node is ForExpNode || node is BreakExpNode;
+            else if (node is LetExpNode letNode)
+            {
+                foreach (var dec in letNode.Decs)
+                {
+                    if (dec is VarDeclNode v)
+                    {
+                        sb.Append($"{indent}dynamic {v.Name} = ");
+                        EmitExprInline(v.Init, sb);
+                        sb.AppendLine(";");
+                    }
+                }
+                for (int i = 0; i < letNode.Body.Count; i++)
+                {
+                    if (i == letNode.Body.Count - 1)
+                    {
+                        EmitFunctionBody(letNode.Body[i], sb, indent);
+                    }
+                    else
+                    {
+                        EmitNode(letNode.Body[i], sb, indent);
+                    }
+                }
+            }
+            else
+            {
+                sb.Append($"{indent}return ");
+                EmitExprInline(node, sb);
+                sb.AppendLine(";");
+            }
         }
 
         private static void EmitNode(ExpNode node, StringBuilder sb, string indent)
@@ -105,9 +136,7 @@ namespace Tiger.NET
                 }
                 foreach (var b in letNode.Body)
                 {
-                    sb.Append(indent);
-                    EmitExprInline(b, sb);
-                    sb.AppendLine(";");
+                    EmitNode(b, sb, indent);
                 }
             }
             else if (node is IfExpNode ifNode)
