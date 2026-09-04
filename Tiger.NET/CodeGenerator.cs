@@ -24,7 +24,6 @@ namespace Tiger.NET
             sb.AppendLine("        }");
             sb.AppendLine("    }");
 
-            // 標準ライブラリ実装
             sb.AppendLine("    public static class TigerStdLib {");
             sb.AppendLine("        public static void Init() {}");
             sb.AppendLine("        public static void print(object s) => Console.Write(s);");
@@ -159,31 +158,30 @@ namespace Tiger.NET
             if (targetTypeName.Contains("dll")) outputKind = OutputKind.DynamicallyLinkedLibrary;
             else if (targetTypeName.Contains("win")) outputKind = OutputKind.WindowsApplication;
 
-            // 指定された TFM の解析 (/tfm:net10.0 や /tfm:net9.0 等)
-            string rawTfm = string.IsNullOrEmpty(options.TargetFramework) ? "net10.0" : options.TargetFramework.ToLower();
+            // /tfw オプション値の解析
+            string rawTfw = string.IsNullOrEmpty(options.TargetFramework) ? "net10.0" : options.TargetFramework.ToLower();
             string targetTfm;
             string frameworkVersion;
+            IEnumerable<MetadataReference> references;
 
-            if (rawTfm.StartsWith("net"))
-            {
-                string versionPart = rawTfm.Replace("net", "");
-                if (!versionPart.Contains("."))
-                {
-                    versionPart += ".0";
-                }
-                targetTfm = $"net{versionPart}";
-                frameworkVersion = $"{versionPart}.0";
-            }
-            else
+            if (rawTfw.Contains("net10"))
             {
                 targetTfm = "net10.0";
                 frameworkVersion = "10.0.0";
+                // .NET 10 ランタイムアセンブリから直接参照を生成
+                references = GetCurrentRuntimeReferences();
+            }
+            else
+            {
+                targetTfm = "net9.0";
+                frameworkVersion = "9.0.0";
+                references = Net90.References.All;
             }
 
             var compilation = CSharpCompilation.Create(
                 assemblyName,
                 syntaxTrees: new[] { syntaxTree },
-                references: Net90.References.All, // 共通参照アセンブリ
+                references: references,
                 options: new CSharpCompilationOptions(outputKind, optimizationLevel: OptimizationLevel.Release)
             );
 
@@ -208,7 +206,6 @@ namespace Tiger.NET
                 string dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFilePath)) ?? "";
                 string configPath = Path.Combine(dir, $"{assemblyName}.runtimeconfig.json");
 
-                // 指定された TFM に応じた runtimeconfig.json の動的生成
                 string runtimeConfigContent = "{\n" +
                     "  \"runtimeOptions\": {\n" +
                     $"    \"tfm\": \"{targetTfm}\",\n" +
@@ -225,6 +222,22 @@ namespace Tiger.NET
 
             Console.WriteLine($"[Success] Assembly Generated ({targetTfm}): {options.OutputFilePath}");
             return true;
+        }
+
+        private static IEnumerable<MetadataReference> GetCurrentRuntimeReferences()
+        {
+            var trustedAssembliesPaths = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
+            var list = new List<MetadataReference>();
+
+            foreach (var refPath in trustedAssembliesPaths)
+            {
+                if (File.Exists(refPath))
+                {
+                    list.Add(MetadataReference.CreateFromFile(refPath));
+                }
+            }
+
+            return list;
         }
     }
 }
