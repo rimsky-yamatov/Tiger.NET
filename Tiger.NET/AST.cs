@@ -2,32 +2,77 @@
 
 namespace Tiger.NET
 {
-    public abstract class ExpNode { }
+    public abstract class ExpNode
+    {
+        public TigerType? InferredType { get; set; }
+    }
 
     public class StringLiteralNode : ExpNode
     {
         public string Value { get; set; }
-        public StringLiteralNode(string val) => Value = val;
+
+        public StringLiteralNode(string val)
+        {
+            Value = val;
+        }
     }
 
     public class IntLiteralNode : ExpNode
     {
         public int Value { get; set; }
-        public IntLiteralNode(int val) => Value = val;
+
+        public IntLiteralNode(int val)
+        {
+            Value = val;
+        }
+    }
+
+    public class BoolLiteralNode : ExpNode
+    {
+        public bool Value { get; set; }
+
+        public BoolLiteralNode(bool val)
+        {
+            Value = val;
+        }
+    }
+
+    public class UnaryExpNode : ExpNode
+    {
+        public string Op { get; set; }
+        public ExpNode Operand { get; set; }
+
+        public UnaryExpNode(string op, ExpNode operand)
+        {
+            Op = op;
+            Operand = operand;
+        }
     }
 
     public class VarDeclNode : ExpNode
     {
         public string Name { get; set; }
+        public string? DeclaredType { get; set; }
         public ExpNode Init { get; set; }
-        public VarDeclNode(string name, ExpNode init) { Name = name; Init = init; }
+
+        public VarDeclNode(string name, string? declaredType, ExpNode init)
+        {
+            Name = name;
+            DeclaredType = declaredType;
+            Init = init;
+        }
     }
 
     public class FuncParam
     {
         public string Name { get; set; }
         public string TypeName { get; set; }
-        public FuncParam(string name, string typeName) { Name = name; TypeName = typeName; }
+
+        public FuncParam(string name, string typeName)
+        {
+            Name = name;
+            TypeName = typeName;
+        }
     }
 
     public class FunctionDeclNode : ExpNode
@@ -54,6 +99,7 @@ namespace Tiger.NET
     {
         public string VarName { get; set; }
         public ExpNode Value { get; set; }
+
         public AssignNode(string varName, ExpNode val)
         {
             VarName = varName;
@@ -121,9 +167,7 @@ namespace Tiger.NET
         public ExpNode Cond { get; set; }
         public List<ExpNode> Body { get; set; }
 
-        public WhileExpNode(
-            ExpNode cond,
-            List<ExpNode> body)
+        public WhileExpNode(ExpNode cond, List<ExpNode> body)
         {
             Cond = cond;
             Body = body;
@@ -157,6 +201,10 @@ namespace Tiger.NET
     public class VarAccessNode : ExpNode
     {
         public string Name { get; set; }
-        public VarAccessNode(string name) => Name = name;
+
+        public VarAccessNode(string name)
+        {
+            Name = name;
+        }
     }
 }
