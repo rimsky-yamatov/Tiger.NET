@@ -5,111 +5,208 @@ namespace Tiger.NET
 {
     class Program
     {
-        static void Main(string[] args)
+        static int Main(string[] args)
         {
             if (args.Length == 0)
             {
                 PrintHelp();
-                return;
+                return 1;
             }
 
-            var options = new CompilerOptions();
+            var options =
+                new CompilerOptions();
 
             foreach (var arg in args)
             {
-                // /o: 出力ファイル指定
-                if (arg.StartsWith("/o:", StringComparison.OrdinalIgnoreCase))
+                if (arg.StartsWith(
+                    "/o:",
+                    StringComparison.OrdinalIgnoreCase))
                 {
-                    options.OutputFilePath = arg.Substring(3);
+                    options.OutputFilePath =
+                        arg.Substring(3);
+
+                    continue;
                 }
-                // /tfm: または /tfw: ターゲットフレームワーク指定
-                else if (arg.StartsWith("/tfm:", StringComparison.OrdinalIgnoreCase))
+
+                if (arg.StartsWith(
+                    "/tfm:",
+                    StringComparison.OrdinalIgnoreCase))
                 {
-                    options.TargetFramework = arg.Substring(5).ToLower();
+                    options.TargetFramework =
+                        arg.Substring(5)
+                            .ToLowerInvariant();
+
+                    continue;
                 }
-                else if (arg.StartsWith("/tfw:", StringComparison.OrdinalIgnoreCase))
+
+                if (arg.StartsWith(
+                    "/target:",
+                    StringComparison.OrdinalIgnoreCase))
                 {
-                    options.TargetFramework = arg.Substring(5).ToLower();
+                    string target =
+                        arg.Substring(8)
+                            .ToLowerInvariant();
+
+                    options.TargetType =
+                        target switch
+                        {
+                            "dll" =>
+                                OutputType.Dll,
+
+                            "win" or "winexe" =>
+                                OutputType.WindowsApplication,
+
+                            _ =>
+                                OutputType.ConsoleApplication
+                        };
+
+                    continue;
                 }
-                // /target: 出力ターゲット形式指定 (exe, win, dll)
-                else if (arg.StartsWith("/target:", StringComparison.OrdinalIgnoreCase))
+
+                if (arg.StartsWith(
+                    "/optimize:",
+                    StringComparison.OrdinalIgnoreCase))
                 {
-                    string target = arg.Substring(8).ToLower();
-                    options.TargetType = target switch
-                    {
-                        "dll" => OutputType.Dll,
-                        "win" or "winexe" => OutputType.WindowsApplication,
-                        _ => OutputType.ConsoleApplication
-                    };
+                    string level =
+                        arg.Substring(10);
+
+                    options.OptimizationLevel =
+                        level switch
+                        {
+                            "0" =>
+                                OptimizationLevelKind.None,
+
+                            "debug" =>
+                                OptimizationLevelKind.Debug,
+
+                            _ =>
+                                OptimizationLevelKind.Release
+                        };
+
+                    continue;
                 }
-                // /optimize: 最適化レベル指定 (0, 1, 2)
-                else if (arg.StartsWith("/optimize:", StringComparison.OrdinalIgnoreCase))
-                {
-                    string level = arg.Substring(10);
-                    options.OptimizationLevel = level switch
-                    {
-                        "0" => OptimizationLevelKind.None,
-                        "1" or "2" => OptimizationLevelKind.Release,
-                        _ => OptimizationLevelKind.Release
-                    };
-                }
-                // /singlefile 単一ファイル出力
-                else if (arg.Equals("/singlefile", StringComparison.OrdinalIgnoreCase))
-                {
-                    options.IsSingleFile = true;
-                }
-                // /selfcontained ランタイム同梱
-                else if (arg.Equals("/selfcontained", StringComparison.OrdinalIgnoreCase))
-                {
-                    options.IsSelfContained = true;
-                }
-                // /debug デバッグ情報出力
-                else if (arg.Equals("/debug", StringComparison.OrdinalIgnoreCase))
+
+                if (arg.Equals(
+                    "/debug",
+                    StringComparison.OrdinalIgnoreCase))
                 {
                     options.IncludeDebugInfo = true;
-                    options.OptimizationLevel = OptimizationLevelKind.Debug;
+                    options.OptimizationLevel =
+                        OptimizationLevelKind.Debug;
+
+                    continue;
                 }
-                // /verbose 詳細ログ出力
-                else if (arg.Equals("/verbose", StringComparison.OrdinalIgnoreCase))
+
+                if (arg.Equals(
+                    "/singlefile",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    options.IsSingleFile = true;
+                    continue;
+                }
+
+                if (arg.Equals(
+                    "/selfcontained",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    options.IsSelfContained = true;
+                    continue;
+                }
+
+                if (arg.Equals(
+                        "/verbose",
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     options.VerboseOutput = true;
+                    continue;
                 }
-                // ヘルプ表示
-                else if (arg.Equals("/?") || arg.Equals("/help", StringComparison.OrdinalIgnoreCase))
+
+                if (arg.Equals("/?") ||
+                    arg.Equals(
+                        "/help",
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     PrintHelp();
-                    return;
+                    return 0;
                 }
-                // ソースファイルパス
-                else if (!arg.StartsWith("/"))
+
+                if (!arg.StartsWith("/"))
                 {
                     options.SourceFilePath = arg;
+                    continue;
                 }
+
+                Console.WriteLine(
+                    $"[Error] Unknown option: {arg}");
+
+                return 1;
             }
 
-            if (string.IsNullOrEmpty(options.SourceFilePath) || !File.Exists(options.SourceFilePath))
+            if (string.IsNullOrEmpty(
+                    options.SourceFilePath))
             {
-                Console.WriteLine($"[Error] Source file not found: {options.SourceFilePath}");
-                return;
+                Console.WriteLine(
+                    "[Error] No source file specified.");
+
+                return 1;
             }
 
-            CompilerPipeline.Run(options);
+            if (!File.Exists(
+                    options.SourceFilePath))
+            {
+                Console.WriteLine(
+                    $"[Error] Source file not found: " +
+                    options.SourceFilePath);
+
+                return 1;
+            }
+
+            return CompilerPipeline.Run(
+                options)
+                ? 0
+                : 1;
         }
 
         private static void PrintHelp()
         {
-            Console.WriteLine("Tiger.NET Compiler");
-            Console.WriteLine("Version: 1.0.0");
-            Console.WriteLine("Usage: Tiger.NET <source.tig> [options]");
-            Console.WriteLine("Options:");
-            Console.WriteLine("    /o:<file>             Specify output executable/dll path");
-            Console.WriteLine("    /tfm:<framework>      Specify target framework (e.g. net9.0, net10.0)");
-            Console.WriteLine("    /target:<type>        Target build type: exe, win, dll");
-            Console.WriteLine("    /optimize:<level>     Optimization level: 0, 1, 2");
-            Console.WriteLine("    /singlefile           Bundle output into a single file");
-            Console.WriteLine("    /selfcontained        Package runtime inside the output binary");
-            Console.WriteLine("    /debug                Generate debug build");
-            Console.WriteLine("    /verbose              Show verbose compiler pipeline logs");
+            Console.WriteLine(
+                "Tiger.NET Compiler");
+
+            Console.WriteLine(
+                "Version: 1.0.0");
+
+            Console.WriteLine(
+                "Usage: Tiger.NET <source.tig> [options]");
+
+            Console.WriteLine(
+                "Options:");
+
+            Console.WriteLine(
+                "    /o:<file>");
+
+            Console.WriteLine(
+                "    /tfm:<framework>");
+
+            Console.WriteLine(
+                "    /target:exe|win|dll");
+
+            Console.WriteLine(
+                "    /optimize:0|1|2");
+
+            Console.WriteLine(
+                "    /debug");
+
+            Console.WriteLine(
+                "    /singlefile");
+
+            Console.WriteLine(
+                "    /selfcontained");
+
+            Console.WriteLine(
+                "    /verbose");
+
+            Console.WriteLine(
+                "    /help");
         }
     }
 }
