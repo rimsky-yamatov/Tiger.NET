@@ -39,11 +39,11 @@ namespace Tiger.NET
             sb.AppendLine("    }");
 
             sb.AppendLine("    public static class TigerStdLib {");
-            sb.AppendLine("        public static void Init() {}");
-            sb.AppendLine("        public static void print(object s) { Console.Write(s); Console.Out.Flush(); }");
-            sb.AppendLine("        public static void printline(object s) => Console.WriteLine(s);");
-            sb.AppendLine("        public static void printint(object i) { Console.Write(i); Console.Out.Flush(); }");
-            sb.AppendLine("        public static void flush() => Console.Out.Flush();");
+            sb.AppendLine("        public static dynamic Init() { return 0; }");
+            sb.AppendLine("        public static dynamic print(object s) { Console.Write(s); Console.Out.Flush(); return 0; }");
+            sb.AppendLine("        public static dynamic printline(object s) { Console.WriteLine(s); return 0; }");
+            sb.AppendLine("        public static dynamic printint(object i) { Console.Write(i); Console.Out.Flush(); return 0; }");
+            sb.AppendLine("        public static dynamic flush() { Console.Out.Flush(); return 0; }");
             sb.AppendLine("        public static string getchar() => Console.Read() == -1 ? \"\" : ((char)Console.Read()).ToString();");
             sb.AppendLine("        public static int ord(string s) => string.IsNullOrEmpty(s) ? -1 : (int)s[0];");
             sb.AppendLine("        public static string chr(int i) => ((char)i).ToString();");
@@ -52,7 +52,7 @@ namespace Tiger.NET
             sb.AppendLine("        public static string concat(string s1, string s2) => string.Concat(s1, s2);");
             sb.AppendLine("        public static int not(int i) => i == 0 ? 1 : 0;");
             sb.AppendLine("        public static bool IsTruthy(dynamic cond) => cond is bool b ? b : Convert.ToInt32(cond) != 0;");
-            sb.AppendLine("        public static void exit(int status) => Environment.Exit(status);");
+            sb.AppendLine("        public static dynamic exit(int status) { Environment.Exit(status); return 0; }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
             return sb.ToString();
@@ -93,6 +93,10 @@ namespace Tiger.NET
                     EmitFunctionBody(ifNode.Else, sb, indent + "    ");
                     sb.AppendLine($"{indent}}}");
                 }
+                else
+                {
+                    sb.AppendLine($"{indent}return 0;");
+                }
             }
             else if (node is LetExpNode letNode)
             {
@@ -116,6 +120,33 @@ namespace Tiger.NET
                         EmitNode(letNode.Body[i], sb, indent);
                     }
                 }
+            }
+            else if (node is WhileExpNode whileNode)
+            {
+                sb.Append($"{indent}while (TigerStdLib.IsTruthy(");
+                EmitExprInline(whileNode.Cond, sb);
+                sb.AppendLine("))");
+                sb.AppendLine($"{indent}{{");
+                EmitNode(whileNode.Body, sb, indent + "    ");
+                sb.AppendLine($"{indent}}}");
+                sb.AppendLine($"{indent}return 0;");
+            }
+            else if (node is ForExpNode forNode)
+            {
+                string varName = GetStringProp(forNode, "VarName", "Var", "VariableName", "Name", "Id") ?? "i";
+                ExpNode startExp = GetExpProp(forNode, "Start", "Low", "From", "Init", "EscapeStart", "E1", "A1");
+                ExpNode endExp = GetExpProp(forNode, "End", "High", "To", "Limit", "EscapeEnd", "E2", "A2");
+                ExpNode bodyExp = GetExpProp(forNode, "Body", "Then", "Exp", "Expression") ?? forNode.Body;
+
+                sb.Append($"{indent}for (int {varName} = Convert.ToInt32(");
+                EmitExprInline(startExp, sb);
+                sb.Append($"), __limit_{varName} = Convert.ToInt32(");
+                EmitExprInline(endExp, sb);
+                sb.AppendLine($"); {varName} <= __limit_{varName}; {varName}++)");
+                sb.AppendLine($"{indent}{{");
+                EmitNode(bodyExp, sb, indent + "    ");
+                sb.AppendLine($"{indent}}}");
+                sb.AppendLine($"{indent}return 0;");
             }
             else
             {
@@ -223,6 +254,11 @@ namespace Tiger.NET
                 else
                 {
                     sb.Append(indent);
+                    // CS0201回避のため、代入やメソッド呼び出し以外の式には「_ = 」を付加する
+                    if (!(node is AssignNode || node is CallExpNode))
+                    {
+                        sb.Append("_ = ");
+                    }
                     EmitExprInline(node, sb);
                     sb.AppendLine(";");
                 }
@@ -306,6 +342,11 @@ namespace Tiger.NET
                         }
                         else
                         {
+                            // CS0201回避
+                            if (!(children[i] is AssignNode || children[i] is CallExpNode))
+                            {
+                                sb.Append("_ = ");
+                            }
                             EmitExprInline(children[i], sb);
                             sb.Append("; ");
                         }
