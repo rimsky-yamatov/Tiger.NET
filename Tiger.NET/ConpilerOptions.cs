@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Tiger.NET
+﻿namespace Tiger.NET
 {
     public enum OutputType
     {
@@ -19,13 +17,25 @@ namespace Tiger.NET
     public class CompilerOptions
     {
         public string SourceFilePath { get; set; } = "";
-        public string OutputFilePath { get; set; } = "output.exe";
-        public OutputType TargetType { get; set; } = OutputType.ConsoleApplication;
-        public bool IsSingleFile { get; set; } = false;
-        public bool IsSelfContained { get; set; } = false;
-        public string TargetFramework { get; set; } = "net10.0";
-        public OptimizationLevelKind OptimizationLevel { get; set; } = OptimizationLevelKind.Release;
-        public bool IncludeDebugInfo { get; set; } = false;
-        public bool VerboseOutput { get; set; } = false;
+
+        public string OutputFilePath { get; set; }
+            = "output.exe";
+
+        public OutputType TargetType { get; set; }
+            = OutputType.ConsoleApplication;
+
+        public bool IsSingleFile { get; set; }
+
+        public bool IsSelfContained { get; set; }
+
+        public string TargetFramework { get; set; }
+            = "net10.0";
+
+        public OptimizationLevelKind OptimizationLevel { get; set; }
+            = OptimizationLevelKind.Release;
+
+        public bool IncludeDebugInfo { get; set; }
+
+        public bool VerboseOutput { get; set; }
     }
 }
