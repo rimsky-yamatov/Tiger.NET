@@ -2,5 +2,9 @@
 Tiger.NET/bin/Debug/net10.0/*.exe
 !Tiger.NET/bin/Debug/net10.0/Tiger.NET.exe
 !Tiger.NET/bin/Debug/net10.0/TempProj.exe
+
+Tiger.NET/bin/Debug/net10.0/*.dll
+!Tiger.NET/bin/Debug/net10.0/Tiger.NET.dll
+
 Tiger.NET/bin/Debug/net10.0/*.tig
 Tiger.NET/bin/Debug/net10.0/*.runtimeconfig.json
