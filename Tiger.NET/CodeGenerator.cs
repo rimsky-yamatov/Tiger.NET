@@ -166,13 +166,17 @@ namespace Tiger.NET
             }
             else if (node is ForExpNode forNode)
             {
+                // dynamic/object から安全に int へ展開してループを構成
                 sb.Append($"{indent}for (int {forNode.VarName} = Convert.ToInt32(");
                 EmitExprInline(forNode.EscapeStart, sb);
                 sb.Append($"), __limit_{forNode.VarName} = Convert.ToInt32(");
                 EmitExprInline(forNode.EscapeEnd, sb);
                 sb.AppendLine($"); {forNode.VarName} <= __limit_{forNode.VarName}; {forNode.VarName}++)");
                 sb.AppendLine($"{indent}{{");
+
+                // ループ内の式を出力
                 EmitNode(forNode.Body, sb, indent + "    ");
+
                 sb.AppendLine($"{indent}}}");
             }
             else if (node is FunctionDeclNode)
@@ -181,6 +185,7 @@ namespace Tiger.NET
             }
             else
             {
+                // 一般の式を独立した文として出力
                 sb.Append(indent);
                 EmitExprInline(node, sb);
                 sb.AppendLine(";");
@@ -189,15 +194,27 @@ namespace Tiger.NET
 
         private static void EmitExprInline(ExpNode node, StringBuilder sb)
         {
-            if (node is StringLiteralNode s) sb.Append($"\"{s.Value.Replace("\"", "\\\"")}\"");
-            else if (node is IntLiteralNode intNode) sb.Append(intNode.Value);
-            else if (node is VarAccessNode v) sb.Append(v.Name);
+            if (node is StringLiteralNode s)
+            {
+                sb.Append($"\"{s.Value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"");
+            }
+            else if (node is IntLiteralNode intNode)
+            {
+                sb.Append(intNode.Value);
+            }
+            else if (node is VarAccessNode v)
+            {
+                sb.Append(v.Name);
+            }
             else if (node is AssignNode a)
             {
                 sb.Append($"{a.VarName} = ");
                 EmitExprInline(a.Value, sb);
             }
-            else if (node is BreakExpNode) sb.Append("break");
+            else if (node is BreakExpNode)
+            {
+                sb.Append("break");
+            }
             else if (node is BinaryExpNode b)
             {
                 string op = b.Op switch
@@ -229,6 +246,10 @@ namespace Tiger.NET
                     EmitExprInline(c.Args[i], sb);
                 }
                 sb.Append(")");
+            }
+            else
+            {
+                sb.Append("null");
             }
         }
 
