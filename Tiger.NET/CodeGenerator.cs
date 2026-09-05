@@ -1,7 +1,9 @@
 ﻿using System;
 using System.IO;
 using System.Text;
+using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Basic.Reference.Assemblies;
@@ -74,6 +76,8 @@ namespace Tiger.NET
 
         private static void EmitFunctionBody(ExpNode node, StringBuilder sb, string indent)
         {
+            if (node == null) return;
+
             if (node is IfExpNode ifNode)
             {
                 sb.Append($"{indent}if (TigerStdLib.IsTruthy(");
@@ -115,14 +119,34 @@ namespace Tiger.NET
             }
             else
             {
-                sb.Append($"{indent}return ");
-                EmitExprInline(node, sb);
-                sb.AppendLine(";");
+                var seqList = GetChildExpressions(node);
+                if (seqList != null && seqList.Count > 0)
+                {
+                    for (int i = 0; i < seqList.Count; i++)
+                    {
+                        if (i == seqList.Count - 1)
+                        {
+                            EmitFunctionBody(seqList[i], sb, indent);
+                        }
+                        else
+                        {
+                            EmitNode(seqList[i], sb, indent);
+                        }
+                    }
+                }
+                else
+                {
+                    sb.Append($"{indent}return ");
+                    EmitExprInline(node, sb);
+                    sb.AppendLine(";");
+                }
             }
         }
 
         private static void EmitNode(ExpNode node, StringBuilder sb, string indent)
         {
+            if (node == null) return;
+
             if (node is LetExpNode letNode)
             {
                 foreach (var dec in letNode.Decs)
@@ -166,16 +190,19 @@ namespace Tiger.NET
             }
             else if (node is ForExpNode forNode)
             {
-                // dynamic/object から安全に int へ展開してループを構成
-                sb.Append($"{indent}for (int {forNode.VarName} = Convert.ToInt32(");
-                EmitExprInline(forNode.EscapeStart, sb);
-                sb.Append($"), __limit_{forNode.VarName} = Convert.ToInt32(");
-                EmitExprInline(forNode.EscapeEnd, sb);
-                sb.AppendLine($"); {forNode.VarName} <= __limit_{forNode.VarName}; {forNode.VarName}++)");
+                string varName = GetStringProp(forNode, "VarName", "Var", "VariableName", "Name", "Id") ?? "i";
+                ExpNode startExp = GetExpProp(forNode, "Start", "Low", "From", "Init", "EscapeStart", "E1", "A1");
+                ExpNode endExp = GetExpProp(forNode, "End", "High", "To", "Limit", "EscapeEnd", "E2", "A2");
+                ExpNode bodyExp = GetExpProp(forNode, "Body", "Then", "Exp", "Expression") ?? forNode.Body;
+
+                sb.Append($"{indent}for (int {varName} = Convert.ToInt32(");
+                EmitExprInline(startExp, sb);
+                sb.Append($"), __limit_{varName} = Convert.ToInt32(");
+                EmitExprInline(endExp, sb);
+                sb.AppendLine($"); {varName} <= __limit_{varName}; {varName}++)");
                 sb.AppendLine($"{indent}{{");
 
-                // ループ内の式を出力
-                EmitNode(forNode.Body, sb, indent + "    ");
+                EmitNode(bodyExp, sb, indent + "    ");
 
                 sb.AppendLine($"{indent}}}");
             }
@@ -185,15 +212,31 @@ namespace Tiger.NET
             }
             else
             {
-                // 一般の式を独立した文として出力
-                sb.Append(indent);
-                EmitExprInline(node, sb);
-                sb.AppendLine(";");
+                var children = GetChildExpressions(node);
+                if (children != null && children.Count > 0)
+                {
+                    foreach (var child in children)
+                    {
+                        EmitNode(child, sb, indent);
+                    }
+                }
+                else
+                {
+                    sb.Append(indent);
+                    EmitExprInline(node, sb);
+                    sb.AppendLine(";");
+                }
             }
         }
 
         private static void EmitExprInline(ExpNode node, StringBuilder sb)
         {
+            if (node == null)
+            {
+                sb.Append("null");
+                return;
+            }
+
             if (node is StringLiteralNode s)
             {
                 sb.Append($"\"{s.Value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"");
@@ -249,8 +292,116 @@ namespace Tiger.NET
             }
             else
             {
-                sb.Append("null");
+                var children = GetChildExpressions(node);
+                if (children != null && children.Count > 0)
+                {
+                    sb.Append("((Func<dynamic>)(() => { ");
+                    for (int i = 0; i < children.Count; i++)
+                    {
+                        if (i == children.Count - 1)
+                        {
+                            sb.Append("return ");
+                            EmitExprInline(children[i], sb);
+                            sb.Append("; ");
+                        }
+                        else
+                        {
+                            EmitExprInline(children[i], sb);
+                            sb.Append("; ");
+                        }
+                    }
+                    sb.Append("}))()");
+                }
+                else
+                {
+                    sb.Append("null");
+                }
             }
+        }
+
+        private static string GetStringProp(object obj, params string[] names)
+        {
+            if (obj == null) return null;
+            var type = obj.GetType();
+            foreach (var name in names)
+            {
+                var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (prop != null && prop.PropertyType == typeof(string))
+                {
+                    var val = prop.GetValue(obj) as string;
+                    if (!string.IsNullOrEmpty(val)) return val;
+                }
+                var field = type.GetField(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (field != null && field.FieldType == typeof(string))
+                {
+                    var val = field.GetValue(obj) as string;
+                    if (!string.IsNullOrEmpty(val)) return val;
+                }
+            }
+            return null;
+        }
+
+        private static ExpNode GetExpProp(object obj, params string[] names)
+        {
+            if (obj == null) return null;
+            var type = obj.GetType();
+            foreach (var name in names)
+            {
+                var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (prop != null && typeof(ExpNode).IsAssignableFrom(prop.PropertyType))
+                {
+                    var val = prop.GetValue(obj) as ExpNode;
+                    if (val != null) return val;
+                }
+                var field = type.GetField(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (field != null && typeof(ExpNode).IsAssignableFrom(field.FieldType))
+                {
+                    var val = field.GetValue(obj) as ExpNode;
+                    if (val != null) return val;
+                }
+            }
+            return null;
+        }
+
+        private static List<ExpNode> GetChildExpressions(object obj)
+        {
+            if (obj == null) return null;
+            var type = obj.GetType();
+            var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var prop in props)
+            {
+                if (typeof(IEnumerable).IsAssignableFrom(prop.PropertyType) && prop.PropertyType != typeof(string))
+                {
+                    var val = prop.GetValue(obj) as IEnumerable;
+                    if (val != null)
+                    {
+                        var list = new List<ExpNode>();
+                        foreach (var item in val)
+                        {
+                            if (item is ExpNode exp) list.Add(exp);
+                        }
+                        if (list.Count > 0) return list;
+                    }
+                }
+            }
+            var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var field in fields)
+            {
+                if (typeof(IEnumerable).IsAssignableFrom(field.FieldType) && field.FieldType != typeof(string))
+                {
+                    var val = field.GetValue(obj) as IEnumerable;
+                    if (val != null)
+                    {
+                        var list = new List<ExpNode>();
+                        foreach (var item in val)
+                        {
+                            if (item is ExpNode exp) list.Add(exp);
+                        }
+                        if (list.Count > 0) return list;
+                    }
+                }
+            }
+            return null;
         }
 
         public static bool CompileToAssembly(string csharpCode, CompilerOptions options)
