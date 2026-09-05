@@ -1,768 +1,737 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using System.Collections;
-using System.Collections.Generic;
-using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Basic.Reference.Assemblies;
 
 namespace Tiger.NET
 {
-    public class CodeGenerator
+    public static class CodeGenerator
     {
         public static string EmitCSharp(ExpNode ast)
         {
             var sb = new StringBuilder();
 
             sb.AppendLine("using System;");
-            sb.AppendLine("namespace Tiger.NET.Runtime {");
-            sb.AppendLine("    public static class ExecutableProgram {");
+            sb.AppendLine("namespace Tiger.NET.Runtime");
+            sb.AppendLine("{");
+            sb.AppendLine("    public static class ExecutableProgram");
+            sb.AppendLine("    {");
 
-            if (ast is LetExpNode rootLet)
+            if (ast is LetExpNode root)
             {
-                foreach (var dec in rootLet.Decs)
+                foreach (var dec in root.Decs)
                 {
-                    if (dec is FunctionDeclNode fn)
-                    {
-                        EmitUserFunction(fn, sb, "        ");
-                    }
+                    if (dec is FunctionDeclNode function)
+                        EmitFunction(function, sb);
                 }
             }
 
-            sb.AppendLine("        public static void Main(string[] args) {");
-            sb.AppendLine("            TigerStdLib.Init();");
+            sb.AppendLine(
+                "        public static void Main(string[] args)");
 
-            EmitNode(ast, sb, "            ");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            TigerStdLib.Init();");
+
+            EmitStatements(
+                ast,
+                sb,
+                "            ");
 
             sb.AppendLine("        }");
             sb.AppendLine("    }");
 
-            sb.AppendLine("    public static class TigerStdLib {");
-            sb.AppendLine("        public static dynamic Init() { return 0; }");
-            sb.AppendLine("        public static dynamic print(object s) { Console.Write(s); Console.Out.Flush(); return 0; }");
-            sb.AppendLine("        public static dynamic printline(object s) { Console.WriteLine(s); return 0; }");
-            sb.AppendLine("        public static dynamic printint(object i) { Console.Write(i); Console.Out.Flush(); return 0; }");
-            sb.AppendLine("        public static dynamic flush() { Console.Out.Flush(); return 0; }");
-            sb.AppendLine("        public static string getchar() => Console.Read() == -1 ? \"\" : ((char)Console.Read()).ToString();");
-            sb.AppendLine("        public static int ord(string s) => string.IsNullOrEmpty(s) ? -1 : (int)s[0];");
-            sb.AppendLine("        public static string chr(int i) => ((char)i).ToString();");
-            sb.AppendLine("        public static int size(string s) => s?.Length ?? 0;");
-            sb.AppendLine("        public static string substring(string s, int first, int n) => s.Substring(first, n);");
-            sb.AppendLine("        public static string concat(string s1, string s2) => string.Concat(s1, s2);");
-            sb.AppendLine("        public static int not(int i) => i == 0 ? 1 : 0;");
-            sb.AppendLine("        public static bool IsTruthy(dynamic cond) => cond is bool b ? b : Convert.ToInt32(cond) != 0;");
-            sb.AppendLine("        public static dynamic exit(int status) { Environment.Exit(status); return 0; }");
-            sb.AppendLine("    }");
+            EmitStdLib(sb);
+
             sb.AppendLine("}");
 
             return sb.ToString();
         }
 
-        private static void EmitUserFunction(
-            FunctionDeclNode fn,
-            StringBuilder sb,
-            string indent)
+        private static void EmitFunction(
+            FunctionDeclNode function,
+            StringBuilder sb)
         {
-            sb.Append($"{indent}public static dynamic {fn.Name}(");
+            string returnType =
+                ToCSharpType(
+                    TigerType.Parse(function.ReturnType));
 
-            for (int i = 0; i < fn.Params.Count; i++)
+            sb.Append(
+                $"        public static {returnType} {function.Name}(");
+
+            for (int i = 0; i < function.Params.Count; i++)
             {
                 if (i > 0)
                     sb.Append(", ");
 
-                sb.Append($"dynamic {fn.Params[i].Name}");
+                string type =
+                    ToCSharpType(
+                        TigerType.Parse(
+                            function.Params[i].TypeName));
+
+                sb.Append(
+                    $"{type} {function.Params[i].Name}");
             }
 
             sb.AppendLine(")");
-            sb.AppendLine($"{indent}{{");
+            sb.AppendLine("        {");
 
             EmitFunctionBody(
-                fn.Body,
+                function.Body,
                 sb,
-                indent + "    ");
+                "            ",
+                TigerType.Parse(function.ReturnType));
 
-            sb.AppendLine($"{indent}}}");
+            sb.AppendLine("        }");
         }
 
         private static void EmitFunctionBody(
-            ExpNode? node,
+            ExpNode node,
             StringBuilder sb,
-            string indent)
+            string indent,
+            TigerType returnType)
         {
-            if (node == null)
+            if (node is IfExpNode conditional)
             {
-                sb.AppendLine($"{indent}return 0;");
+                EmitIf(
+                    conditional,
+                    sb,
+                    indent,
+                    true,
+                    returnType);
+
                 return;
             }
 
-            if (node is IfExpNode ifNode)
+            if (node is LetExpNode let)
             {
-                sb.Append($"{indent}if (TigerStdLib.IsTruthy(");
-                EmitExprInline(ifNode.Cond, sb);
-                sb.AppendLine("))");
-
-                sb.AppendLine($"{indent}{{");
-
-                EmitFunctionBody(
-                    ifNode.Then,
-                    sb,
-                    indent + "    ");
-
-                sb.AppendLine($"{indent}}}");
-
-                if (ifNode.Else != null)
+                foreach (var dec in let.Decs)
                 {
-                    sb.AppendLine($"{indent}else");
-                    sb.AppendLine($"{indent}{{");
-
-                    EmitFunctionBody(
-                        ifNode.Else,
-                        sb,
-                        indent + "    ");
-
-                    sb.AppendLine($"{indent}}}");
+                    if (dec is VarDeclNode variable)
+                        EmitVariable(variable, sb, indent);
                 }
-                else
+
+                for (int i = 0; i < let.Body.Count; i++)
                 {
-                    sb.AppendLine($"{indent}return 0;");
-                }
-            }
-            else if (node is LetExpNode letNode)
-            {
-                foreach (var dec in letNode.Decs)
-                {
-                    if (dec is VarDeclNode v)
+                    bool last =
+                        i == let.Body.Count - 1;
+
+                    if (last)
                     {
-                        sb.Append($"{indent}dynamic {v.Name} = ");
-                        EmitExprInline(v.Init, sb);
+                        sb.Append(indent);
+                        sb.Append("return ");
+                        EmitExpr(
+                            let.Body[i],
+                            sb);
                         sb.AppendLine(";");
-                    }
-                }
-
-                for (int i = 0; i < letNode.Body.Count; i++)
-                {
-                    if (i == letNode.Body.Count - 1)
-                    {
-                        EmitFunctionBody(
-                            letNode.Body[i],
-                            sb,
-                            indent);
                     }
                     else
                     {
-                        EmitNode(
-                            letNode.Body[i],
+                        EmitStatement(
+                            let.Body[i],
                             sb,
                             indent);
                     }
                 }
+
+                return;
             }
-            else if (node is WhileExpNode whileNode)
-            {
-                sb.Append($"{indent}while (TigerStdLib.IsTruthy(");
-                EmitExprInline(whileNode.Cond, sb);
-                sb.AppendLine("))");
 
-                sb.AppendLine($"{indent}{{");
-
-                foreach (var bodyNode in whileNode.Body)
-                {
-                    EmitNode(
-                        bodyNode,
-                        sb,
-                        indent + "    ");
-                }
-
-                sb.AppendLine($"{indent}}}");
-
-                sb.AppendLine($"{indent}return 0;");
-            }
-            else if (node is ForExpNode forNode)
-            {
-                sb.Append(
-                    $"{indent}for (int {forNode.VarName} = Convert.ToInt32(");
-
-                EmitExprInline(
-                    forNode.EscapeStart,
-                    sb);
-
-                sb.Append(
-                    $"), __limit_{forNode.VarName} = Convert.ToInt32(");
-
-                EmitExprInline(
-                    forNode.EscapeEnd,
-                    sb);
-
-                sb.AppendLine(
-                    $"); {forNode.VarName} <= __limit_{forNode.VarName}; {forNode.VarName}++)");
-
-                sb.AppendLine($"{indent}{{");
-
-                foreach (var bodyNode in forNode.Body)
-                {
-                    EmitNode(
-                        bodyNode,
-                        sb,
-                        indent + "    ");
-                }
-
-                sb.AppendLine($"{indent}}}");
-
-                sb.AppendLine($"{indent}return 0;");
-            }
-            else if (node is BreakExpNode)
-            {
-                sb.AppendLine($"{indent}break;");
-                sb.AppendLine($"{indent}return 0;");
-            }
-            else if (node is CallExpNode ||
-                     node is AssignNode ||
-                     node is BinaryExpNode ||
-                     node is StringLiteralNode ||
-                     node is IntLiteralNode ||
-                     node is VarAccessNode)
-            {
-                sb.Append($"{indent}return ");
-
-                EmitExprInline(
-                    node,
-                    sb);
-
-                sb.AppendLine(";");
-            }
-            else
-            {
-                var seqList =
-                    GetChildExpressions(node);
-
-                if (seqList != null &&
-                    seqList.Count > 0)
-                {
-                    for (int i = 0; i < seqList.Count; i++)
-                    {
-                        if (i == seqList.Count - 1)
-                        {
-                            EmitFunctionBody(
-                                seqList[i],
-                                sb,
-                                indent);
-                        }
-                        else
-                        {
-                            EmitNode(
-                                seqList[i],
-                                sb,
-                                indent);
-                        }
-                    }
-                }
-                else
-                {
-                    sb.Append($"{indent}return ");
-
-                    EmitExprInline(
-                        node,
-                        sb);
-
-                    sb.AppendLine(";");
-                }
-            }
+            sb.Append(indent);
+            sb.Append("return ");
+            EmitExpr(node, sb);
+            sb.AppendLine(";");
         }
 
-        private static void EmitNode(
-            ExpNode? node,
+        private static void EmitStatements(
+            ExpNode node,
             StringBuilder sb,
             string indent)
         {
-            if (node == null)
-                return;
-
-            if (node is LetExpNode letNode)
+            if (node is LetExpNode let)
             {
-                foreach (var dec in letNode.Decs)
+                foreach (var dec in let.Decs)
                 {
-                    if (dec is VarDeclNode v)
-                    {
-                        sb.Append($"{indent}dynamic {v.Name} = ");
-
-                        EmitExprInline(
-                            v.Init,
-                            sb);
-
-                        sb.AppendLine(";");
-                    }
+                    if (dec is VarDeclNode variable)
+                        EmitVariable(
+                            variable,
+                            sb,
+                            indent);
                 }
 
-                foreach (var b in letNode.Body)
+                foreach (var body in let.Body)
                 {
-                    EmitNode(
-                        b,
+                    EmitStatement(
+                        body,
                         sb,
                         indent);
                 }
+
+                return;
             }
-            else if (node is IfExpNode ifNode)
+
+            EmitStatement(
+                node,
+                sb,
+                indent);
+        }
+
+        private static void EmitStatement(
+            ExpNode node,
+            StringBuilder sb,
+            string indent)
+        {
+            switch (node)
             {
-                sb.Append(
-                    $"{indent}if (TigerStdLib.IsTruthy(");
-
-                EmitExprInline(
-                    ifNode.Cond,
-                    sb);
-
-                sb.AppendLine("))");
-                sb.AppendLine($"{indent}{{");
-
-                EmitNode(
-                    ifNode.Then,
-                    sb,
-                    indent + "    ");
-
-                sb.AppendLine($"{indent}}}");
-
-                if (ifNode.Else != null)
-                {
-                    sb.AppendLine($"{indent}else");
-                    sb.AppendLine($"{indent}{{");
-
-                    EmitNode(
-                        ifNode.Else,
+                case VarDeclNode variable:
+                    EmitVariable(
+                        variable,
                         sb,
-                        indent + "    ");
+                        indent);
+                    break;
 
-                    sb.AppendLine($"{indent}}}");
-                }
-            }
-            else if (node is WhileExpNode whileNode)
-            {
-                sb.Append(
-                    $"{indent}while (TigerStdLib.IsTruthy(");
+                case AssignNode:
+                    sb.Append(indent);
+                    EmitExpr(node, sb);
+                    sb.AppendLine(";");
+                    break;
 
-                EmitExprInline(
-                    whileNode.Cond,
-                    sb);
+                case CallExpNode:
+                    sb.Append(indent);
+                    EmitExpr(node, sb);
+                    sb.AppendLine(";");
+                    break;
 
-                sb.AppendLine("))");
-                sb.AppendLine($"{indent}{{");
-
-                foreach (var bodyNode in whileNode.Body)
-                {
-                    EmitNode(
-                        bodyNode,
+                case IfExpNode conditional:
+                    EmitIf(
+                        conditional,
                         sb,
-                        indent + "    ");
-                }
+                        indent,
+                        false,
+                        TigerType.Void);
+                    break;
 
-                sb.AppendLine($"{indent}}}");
-            }
-            else if (node is ForExpNode forNode)
-            {
-                sb.Append(
-                    $"{indent}for (int {forNode.VarName} = Convert.ToInt32(");
-
-                EmitExprInline(
-                    forNode.EscapeStart,
-                    sb);
-
-                sb.Append(
-                    $"), __limit_{forNode.VarName} = Convert.ToInt32(");
-
-                EmitExprInline(
-                    forNode.EscapeEnd,
-                    sb);
-
-                sb.AppendLine(
-                    $"); {forNode.VarName} <= __limit_{forNode.VarName}; {forNode.VarName}++)");
-
-                sb.AppendLine($"{indent}{{");
-
-                foreach (var bodyNode in forNode.Body)
-                {
-                    EmitNode(
-                        bodyNode,
+                case WhileExpNode loop:
+                    EmitWhile(
+                        loop,
                         sb,
-                        indent + "    ");
-                }
+                        indent);
+                    break;
 
-                sb.AppendLine($"{indent}}}");
-            }
-            else if (node is BreakExpNode)
-            {
-                sb.AppendLine($"{indent}break;");
-            }
-            else if (node is FunctionDeclNode)
-            {
-            }
-            else if (node is CallExpNode ||
-                     node is AssignNode ||
-                     node is BinaryExpNode ||
-                     node is StringLiteralNode ||
-                     node is IntLiteralNode ||
-                     node is VarAccessNode)
-            {
-                sb.Append(indent);
+                case ForExpNode loop:
+                    EmitFor(
+                        loop,
+                        sb,
+                        indent);
+                    break;
 
-                if (!(node is AssignNode ||
-                      node is CallExpNode))
-                {
-                    sb.Append("_ = ");
-                }
+                case BreakExpNode:
+                    sb.AppendLine(
+                        $"{indent}break;");
+                    break;
 
-                EmitExprInline(
-                    node,
+                case LetExpNode let:
+                    EmitStatements(
+                        let,
+                        sb,
+                        indent);
+                    break;
+
+                case FunctionDeclNode:
+                    break;
+
+                default:
+                    sb.Append(indent);
+                    EmitExpr(node, sb);
+                    sb.AppendLine(";");
+                    break;
+            }
+        }
+
+        private static void EmitVariable(
+            VarDeclNode node,
+            StringBuilder sb,
+            string indent)
+        {
+            TigerType type =
+                node.InferredType ?? TigerType.Int;
+
+            sb.Append(
+                $"{indent}{ToCSharpType(type)} {node.Name} = ");
+
+            EmitExpr(
+                node.Init,
+                sb);
+
+            sb.AppendLine(";");
+        }
+
+        private static void EmitIf(
+            IfExpNode node,
+            StringBuilder sb,
+            string indent,
+            bool returning,
+            TigerType returnType)
+        {
+            sb.Append(
+                $"{indent}if (");
+
+            EmitExpr(
+                node.Cond,
+                sb);
+
+            sb.AppendLine(")");
+            sb.AppendLine(
+                $"{indent}{{");
+
+            if (returning)
+            {
+                sb.Append(
+                    $"{indent}    return ");
+
+                EmitExpr(
+                    node.Then,
                     sb);
 
                 sb.AppendLine(";");
             }
             else
             {
-                var children =
-                    GetChildExpressions(node);
+                EmitStatement(
+                    node.Then,
+                    sb,
+                    indent + "    ");
+            }
 
-                if (children != null &&
-                    children.Count > 0)
-                {
-                    foreach (var child in children)
-                    {
-                        EmitNode(
-                            child,
-                            sb,
-                            indent);
-                    }
-                }
-                else
-                {
-                    sb.Append(indent);
-                    sb.Append("_ = ");
+            sb.AppendLine(
+                $"{indent}}}");
 
-                    EmitExprInline(
-                        node,
+            if (node.Else != null)
+            {
+                sb.AppendLine(
+                    $"{indent}else");
+                sb.AppendLine(
+                    $"{indent}{{");
+
+                if (returning)
+                {
+                    sb.Append(
+                        $"{indent}    return ");
+
+                    EmitExpr(
+                        node.Else,
                         sb);
 
                     sb.AppendLine(";");
                 }
+                else
+                {
+                    EmitStatement(
+                        node.Else,
+                        sb,
+                        indent + "    ");
+                }
+
+                sb.AppendLine(
+                    $"{indent}}}");
+            }
+            else if (returning &&
+                     returnType.Equals(TigerType.Void))
+            {
+                sb.AppendLine(
+                    $"{indent}return;");
             }
         }
 
-        private static void EmitExprInline(
-            ExpNode? node,
+        private static void EmitWhile(
+            WhileExpNode node,
+            StringBuilder sb,
+            string indent)
+        {
+            sb.Append(
+                $"{indent}while (");
+
+            EmitExpr(
+                node.Cond,
+                sb);
+
+            sb.AppendLine(")");
+            sb.AppendLine(
+                $"{indent}{{");
+
+            foreach (var body in node.Body)
+            {
+                EmitStatement(
+                    body,
+                    sb,
+                    indent + "    ");
+            }
+
+            sb.AppendLine(
+                $"{indent}}}");
+        }
+
+        private static void EmitFor(
+            ForExpNode node,
+            StringBuilder sb,
+            string indent)
+        {
+            string limit =
+                $"__limit_{Sanitize(node.VarName)}";
+
+            sb.Append(
+                $"{indent}for (int {node.VarName} = ");
+
+            EmitExpr(
+                node.EscapeStart,
+                sb);
+
+            sb.Append(
+                $"; {node.VarName} <= {limit}; ");
+
+            sb.Append(
+                $"{node.VarName}++)");
+
+            sb.AppendLine();
+            sb.AppendLine(
+                $"{indent}{{");
+
+            foreach (var body in node.Body)
+            {
+                EmitStatement(
+                    body,
+                    sb,
+                    indent + "    ");
+            }
+
+            sb.AppendLine(
+                $"{indent}}}");
+        }
+
+        private static void EmitExpr(
+            ExpNode node,
             StringBuilder sb)
         {
-            if (node == null)
+            switch (node)
             {
-                sb.Append("null");
-                return;
-            }
+                case IntLiteralNode integer:
+                    sb.Append(integer.Value);
+                    return;
 
-            if (node is StringLiteralNode s)
+                case StringLiteralNode str:
+                    sb.Append(
+                        "\"" +
+                        EscapeString(str.Value) +
+                        "\"");
+                    return;
+
+                case BoolLiteralNode boolean:
+                    sb.Append(
+                        boolean.Value
+                            ? "true"
+                            : "false");
+                    return;
+
+                case VarAccessNode variable:
+                    sb.Append(variable.Name);
+                    return;
+
+                case AssignNode assignment:
+                    sb.Append(
+                        $"{assignment.VarName} = ");
+                    EmitExpr(
+                        assignment.Value,
+                        sb);
+                    return;
+
+                case UnaryExpNode unary:
+                    sb.Append("(");
+                    sb.Append(unary.Op);
+                    EmitExpr(
+                        unary.Operand,
+                        sb);
+                    sb.Append(")");
+                    return;
+
+                case BinaryExpNode binary:
+                    sb.Append("(");
+
+                    EmitExpr(
+                        binary.Left,
+                        sb);
+
+                    sb.Append(
+                        $" {MapOperator(binary.Op)} ");
+
+                    EmitExpr(
+                        binary.Right,
+                        sb);
+
+                    sb.Append(")");
+                    return;
+
+                case CallExpNode call:
+                    EmitCall(
+                        call,
+                        sb);
+                    return;
+
+                case IfExpNode conditional:
+                    EmitConditionalExpression(
+                        conditional,
+                        sb);
+                    return;
+
+                default:
+                    sb.Append("0");
+                    return;
+            }
+        }
+
+        private static void EmitCall(
+            CallExpNode node,
+            StringBuilder sb)
+        {
+            if (IsBuiltin(node.FuncName))
             {
                 sb.Append(
-                    $"\"{s.Value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"");
-            }
-            else if (node is IntLiteralNode intNode)
-            {
-                sb.Append(intNode.Value);
-            }
-            else if (node is VarAccessNode v)
-            {
-                sb.Append(v.Name);
-            }
-            else if (node is AssignNode a)
-            {
-                sb.Append($"{a.VarName} = ");
-
-                EmitExprInline(
-                    a.Value,
-                    sb);
-            }
-            else if (node is BreakExpNode)
-            {
-                sb.Append("break");
-            }
-            else if (node is BinaryExpNode b)
-            {
-                string op = b.Op switch
-                {
-                    "=" => "==",
-                    "<>" => "!=",
-                    _ => b.Op
-                };
-
-                sb.Append("(");
-
-                EmitExprInline(
-                    b.Left,
-                    sb);
-
-                sb.Append($" {op} ");
-
-                EmitExprInline(
-                    b.Right,
-                    sb);
-
-                sb.Append(")");
-            }
-            else if (node is CallExpNode c)
-            {
-                if (c.FuncName is
-                    "printline" or
-                    "print" or
-                    "printint" or
-                    "flush" or
-                    "getchar" or
-                    "ord" or
-                    "chr" or
-                    "size" or
-                    "substring" or
-                    "concat" or
-                    "not" or
-                    "exit")
-                {
-                    sb.Append(
-                        $"TigerStdLib.{c.FuncName}(");
-                }
-                else
-                {
-                    sb.Append(
-                        $"{c.FuncName}(");
-                }
-
-                for (int i = 0; i < c.Args.Count; i++)
-                {
-                    if (i > 0)
-                        sb.Append(", ");
-
-                    EmitExprInline(
-                        c.Args[i],
-                        sb);
-                }
-
-                sb.Append(")");
+                    $"TigerStdLib.{node.FuncName}(");
             }
             else
             {
-                var children =
-                    GetChildExpressions(node);
+                sb.Append(
+                    $"{node.FuncName}(");
+            }
 
-                if (children != null &&
-                    children.Count > 0)
+            for (int i = 0; i < node.Args.Count; i++)
+            {
+                if (i > 0)
+                    sb.Append(", ");
+
+                EmitExpr(
+                    node.Args[i],
+                    sb);
+            }
+
+            sb.Append(")");
+        }
+
+        private static void EmitConditionalExpression(
+            IfExpNode node,
+            StringBuilder sb)
+        {
+            sb.Append("(");
+
+            EmitExpr(
+                node.Cond,
+                sb);
+
+            sb.Append(" ? ");
+
+            EmitExpr(
+                node.Then,
+                sb);
+
+            sb.Append(" : ");
+
+            if (node.Else != null)
+            {
+                EmitExpr(
+                    node.Else,
+                    sb);
+            }
+            else
+            {
+                sb.Append("0");
+            }
+
+            sb.Append(")");
+        }
+
+        private static string MapOperator(
+            string op)
+        {
+            return op switch
+            {
+                "=" => "==",
+                "<>" => "!=",
+                "and" => "&&",
+                "or" => "||",
+                _ => op
+            };
+        }
+
+        private static bool IsBuiltin(
+            string name)
+        {
+            return name switch
+            {
+                "print" => true,
+                "printline" => true,
+                "printint" => true,
+                "flush" => true,
+                "getchar" => true,
+                "ord" => true,
+                "chr" => true,
+                "size" => true,
+                "substring" => true,
+                "concat" => true,
+                "not" => true,
+                "exit" => true,
+                _ => false
+            };
+        }
+
+        private static string ToCSharpType(
+            TigerType type)
+        {
+            return type.Kind switch
+            {
+                TigerTypeKind.Int => "int",
+                TigerTypeKind.String => "string",
+                TigerTypeKind.Bool => "bool",
+                TigerTypeKind.Void => "void",
+                _ => "object"
+            };
+        }
+
+        private static string EscapeString(
+            string value)
+        {
+            return value
+                .Replace("\\", "\\\\")
+                .Replace("\"", "\\\"")
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n")
+                .Replace("\t", "\\t");
+        }
+
+        private static string Sanitize(
+            string value)
+        {
+            var sb = new StringBuilder();
+
+            foreach (char c in value)
+            {
+                if (char.IsLetterOrDigit(c) ||
+                    c == '_')
                 {
-                    sb.Append(
-                        "((Func<dynamic>)(() => { ");
-
-                    for (int i = 0; i < children.Count; i++)
-                    {
-                        if (i == children.Count - 1)
-                        {
-                            sb.Append("return ");
-
-                            EmitExprInline(
-                                children[i],
-                                sb);
-
-                            sb.Append("; ");
-                        }
-                        else
-                        {
-                            if (!(children[i] is AssignNode ||
-                                  children[i] is CallExpNode))
-                            {
-                                sb.Append("_ = ");
-                            }
-
-                            EmitExprInline(
-                                children[i],
-                                sb);
-
-                            sb.Append("; ");
-                        }
-                    }
-
-                    sb.Append("}))()");
+                    sb.Append(c);
                 }
                 else
                 {
-                    sb.Append("null");
+                    sb.Append('_');
                 }
             }
+
+            return sb.ToString();
         }
 
-        private static string? GetStringProp(
-            object? obj,
-            params string[] names)
+        private static void EmitStdLib(
+            StringBuilder sb)
         {
-            if (obj == null)
-                return null;
+            sb.AppendLine();
+            sb.AppendLine(
+                "    public static class TigerStdLib");
+            sb.AppendLine("    {");
 
-            var type =
-                obj.GetType();
+            sb.AppendLine(
+                "        public static void Init() { }");
 
-            foreach (var name in names)
-            {
-                var prop =
-                    type.GetProperty(
-                        name,
-                        BindingFlags.Public |
-                        BindingFlags.Instance |
-                        BindingFlags.IgnoreCase);
+            sb.AppendLine(
+                "        public static void print(string s)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            Console.Write(s);");
+            sb.AppendLine(
+                "            Console.Out.Flush();");
+            sb.AppendLine("        }");
 
-                if (prop != null &&
-                    prop.PropertyType == typeof(string))
-                {
-                    var val =
-                        prop.GetValue(obj) as string;
+            sb.AppendLine(
+                "        public static void printline(string s)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            Console.WriteLine(s);");
+            sb.AppendLine("        }");
 
-                    if (!string.IsNullOrEmpty(val))
-                        return val;
-                }
+            sb.AppendLine(
+                "        public static void printint(int i)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            Console.Write(i);");
+            sb.AppendLine(
+                "            Console.Out.Flush();");
+            sb.AppendLine("        }");
 
-                var field =
-                    type.GetField(
-                        name,
-                        BindingFlags.Public |
-                        BindingFlags.Instance |
-                        BindingFlags.IgnoreCase);
+            sb.AppendLine(
+                "        public static void flush()");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            Console.Out.Flush();");
+            sb.AppendLine("        }");
 
-                if (field != null &&
-                    field.FieldType == typeof(string))
-                {
-                    var val =
-                        field.GetValue(obj) as string;
+            sb.AppendLine(
+                "        public static string getchar()");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            int c = Console.Read();");
+            sb.AppendLine(
+                "            return c == -1 ? \"\" : ((char)c).ToString();");
+            sb.AppendLine("        }");
 
-                    if (!string.IsNullOrEmpty(val))
-                        return val;
-                }
-            }
+            sb.AppendLine(
+                "        public static int ord(string s)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            return string.IsNullOrEmpty(s) ? -1 : s[0];");
+            sb.AppendLine("        }");
 
-            return null;
-        }
+            sb.AppendLine(
+                "        public static string chr(int i)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            return ((char)i).ToString();");
+            sb.AppendLine("        }");
 
-        private static ExpNode? GetExpProp(
-            object? obj,
-            params string[] names)
-        {
-            if (obj == null)
-                return null;
+            sb.AppendLine(
+                "        public static int size(string s)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            return s.Length;");
+            sb.AppendLine("        }");
 
-            var type =
-                obj.GetType();
+            sb.AppendLine(
+                "        public static string substring(string s, int first, int n)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            return s.Substring(first, n);");
+            sb.AppendLine("        }");
 
-            foreach (var name in names)
-            {
-                var prop =
-                    type.GetProperty(
-                        name,
-                        BindingFlags.Public |
-                        BindingFlags.Instance |
-                        BindingFlags.IgnoreCase);
+            sb.AppendLine(
+                "        public static string concat(string s1, string s2)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            return string.Concat(s1, s2);");
+            sb.AppendLine("        }");
 
-                if (prop != null &&
-                    typeof(ExpNode).IsAssignableFrom(
-                        prop.PropertyType))
-                {
-                    var val =
-                        prop.GetValue(obj) as ExpNode;
+            sb.AppendLine(
+                "        public static int not(int i)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            return i == 0 ? 1 : 0;");
+            sb.AppendLine("        }");
 
-                    if (val != null)
-                        return val;
-                }
+            sb.AppendLine(
+                "        public static void exit(int status)");
+            sb.AppendLine("        {");
+            sb.AppendLine(
+                "            Environment.Exit(status);");
+            sb.AppendLine("        }");
 
-                var field =
-                    type.GetField(
-                        name,
-                        BindingFlags.Public |
-                        BindingFlags.Instance |
-                        BindingFlags.IgnoreCase);
-
-                if (field != null &&
-                    typeof(ExpNode).IsAssignableFrom(
-                        field.FieldType))
-                {
-                    var val =
-                        field.GetValue(obj) as ExpNode;
-
-                    if (val != null)
-                        return val;
-                }
-            }
-
-            return null;
-        }
-
-        private static List<ExpNode>? GetChildExpressions(
-            object? obj)
-        {
-            if (obj == null)
-                return null;
-
-            var type =
-                obj.GetType();
-
-            var props =
-                type.GetProperties(
-                    BindingFlags.Public |
-                    BindingFlags.Instance);
-
-            foreach (var prop in props)
-            {
-                if (typeof(IEnumerable).IsAssignableFrom(
-                        prop.PropertyType) &&
-                    prop.PropertyType != typeof(string))
-                {
-                    var val =
-                        prop.GetValue(obj) as IEnumerable;
-
-                    if (val != null)
-                    {
-                        var list =
-                            new List<ExpNode>();
-
-                        foreach (var item in val)
-                        {
-                            if (item is ExpNode exp)
-                                list.Add(exp);
-                        }
-
-                        if (list.Count > 0)
-                            return list;
-                    }
-                }
-            }
-
-            var fields =
-                type.GetFields(
-                    BindingFlags.Public |
-                    BindingFlags.Instance);
-
-            foreach (var field in fields)
-            {
-                if (typeof(IEnumerable).IsAssignableFrom(
-                        field.FieldType) &&
-                    field.FieldType != typeof(string))
-                {
-                    var val =
-                        field.GetValue(obj) as IEnumerable;
-
-                    if (val != null)
-                    {
-                        var list =
-                            new List<ExpNode>();
-
-                        foreach (var item in val)
-                        {
-                            if (item is ExpNode exp)
-                                list.Add(exp);
-                        }
-
-                        if (list.Count > 0)
-                            return list;
-                    }
-                }
-            }
-
-            return null;
+            sb.AppendLine("    }");
         }
 
         public static bool CompileToAssembly(
@@ -770,7 +739,8 @@ namespace Tiger.NET
             CompilerOptions options)
         {
             SyntaxTree syntaxTree =
-                CSharpSyntaxTree.ParseText(csharpCode);
+                CSharpSyntaxTree.ParseText(
+                    csharpCode);
 
             string baseName =
                 Path.GetFileNameWithoutExtension(
@@ -782,31 +752,23 @@ namespace Tiger.NET
                         options.OutputFilePath))
                 ?? Directory.GetCurrentDirectory();
 
+            Directory.CreateDirectory(outputDir);
+
             string dllPath =
                 Path.Combine(
                     outputDir,
                     $"{baseName}.dll");
 
-            string exePath =
-                Path.Combine(
-                    outputDir,
-                    $"{baseName}.exe");
-
             string rawTfm =
                 string.IsNullOrEmpty(
                     options.TargetFramework)
                     ? "net10.0"
-                    : options.TargetFramework.ToLower();
+                    : options.TargetFramework.ToLowerInvariant();
 
             string targetTfm =
                 rawTfm.StartsWith("net10")
                     ? "net10.0"
                     : "net9.0";
-
-            string frameworkVersion =
-                targetTfm == "net10.0"
-                    ? "10.0.11"
-                    : "9.0.0";
 
             IEnumerable<MetadataReference> references =
                 targetTfm == "net10.0"
@@ -826,7 +788,7 @@ namespace Tiger.NET
                         OutputKind.ConsoleApplication
                 };
 
-            OptimizationLevel optLevel =
+            OptimizationLevel optimization =
                 options.OptimizationLevel ==
                 OptimizationLevelKind.Debug
                     ? OptimizationLevel.Debug
@@ -835,149 +797,42 @@ namespace Tiger.NET
             var compilation =
                 CSharpCompilation.Create(
                     baseName,
-                    syntaxTrees: new[] { syntaxTree },
-                    references: references,
-                    options:
-                        new CSharpCompilationOptions(
-                            outputKind,
-                            optimizationLevel:
-                                optLevel));
+                    new[] { syntaxTree },
+                    references,
+                    new CSharpCompilationOptions(
+                        outputKind,
+                        optimizationLevel:
+                            optimization));
 
-            using (var stream =
-                   File.Create(dllPath))
+            using var stream =
+                File.Create(dllPath);
+
+            var result =
+                compilation.Emit(stream);
+
+            if (!result.Success)
             {
-                var result =
-                    compilation.Emit(stream);
+                Console.WriteLine(
+                    "[Error] Generated C# compilation failed:");
 
-                if (!result.Success)
+                foreach (var diagnostic in result.Diagnostics)
                 {
-                    Console.WriteLine(
-                        "[Error] Compilation Failed:");
-
-                    foreach (var diagnostic
-                             in result.Diagnostics)
+                    if (diagnostic.Severity ==
+                        DiagnosticSeverity.Error)
                     {
-                        if (diagnostic.Severity ==
-                            DiagnosticSeverity.Error)
-                        {
-                            Console.WriteLine(
-                                $"  {diagnostic.Id}: {diagnostic.GetMessage()}");
-                        }
+                        Console.WriteLine(
+                            $"  {diagnostic.Id}: " +
+                            diagnostic.GetMessage());
                     }
-
-                    return false;
                 }
-            }
-
-            string configPath =
-                Path.Combine(
-                    outputDir,
-                    $"{baseName}.runtimeconfig.json");
-
-            string runtimeConfigContent =
-                "{\n" +
-                "  \"runtimeOptions\": {\n" +
-                $"    \"tfm\": \"{targetTfm}\",\n" +
-                "    \"framework\": {\n" +
-                "      \"name\": \"Microsoft.NETCore.App\",\n" +
-                $"      \"version\": \"{frameworkVersion}\"\n" +
-                "    },\n" +
-                "    \"rollForward\": \"LatestMinor\"\n" +
-                "  }\n" +
-                "}";
-
-            File.WriteAllText(
-                configPath,
-                runtimeConfigContent);
-
-            bool successHost =
-                CreateNativeAppHost(
-                    dllPath,
-                    exePath);
-
-            if (!successHost)
-            {
-                Console.WriteLine(
-                    "[Warning] Native AppHost generation skipped. Run using 'dotnet " +
-                    baseName +
-                    ".dll'");
-            }
-
-            Console.WriteLine(
-                $"[Success] Assembly Generated ({targetTfm}): {dllPath}");
-
-            if (File.Exists(exePath))
-            {
-                Console.WriteLine(
-                    $"[Success] Native Executable Launcher Created: {exePath}");
-            }
-
-            return true;
-        }
-
-        private static bool CreateNativeAppHost(
-            string dllPath,
-            string destinationExePath)
-        {
-            try
-            {
-                string programFiles =
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.ProgramFiles);
-
-                string appHostPackDir =
-                    Path.Combine(
-                        programFiles,
-                        "dotnet",
-                        "packs",
-                        "Microsoft.NETCore.App.Host.win-x64");
-
-                if (!Directory.Exists(appHostPackDir))
-                    return false;
-
-                var versionDirs =
-                    Directory.GetDirectories(
-                        appHostPackDir,
-                        "10.0.*");
-
-                if (versionDirs.Length == 0)
-                {
-                    versionDirs =
-                        Directory.GetDirectories(
-                            appHostPackDir,
-                            "*");
-                }
-
-                if (versionDirs.Length == 0)
-                    return false;
-
-                Array.Sort(versionDirs);
-
-                string templateAppHostPath =
-                    Path.Combine(
-                        versionDirs[^1],
-                        "runtimes",
-                        "win-x64",
-                        "native",
-                        "apphost.exe");
-
-                if (!File.Exists(templateAppHostPath))
-                    return false;
-
-                HostModelUtils.CreateStandaloneHost(
-                    templateAppHostPath,
-                    destinationExePath,
-                    dllPath);
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(
-                    $"[AppHost Warning] {ex.Message}");
 
                 return false;
             }
+
+            Console.WriteLine(
+                $"[Success] Assembly Generated: {dllPath}");
+
+            return true;
         }
 
         private static IEnumerable<MetadataReference>
@@ -997,195 +852,39 @@ namespace Tiger.NET
                     "packs",
                     "Microsoft.NETCore.App.Ref");
 
-            if (Directory.Exists(refPackDir))
-            {
-                var versionDirs =
-                    Directory.GetDirectories(
-                        refPackDir,
-                        "10.0.*");
+            if (!Directory.Exists(refPackDir))
+                return list;
 
-                if (versionDirs.Length > 0)
-                {
-                    Array.Sort(versionDirs);
+            var versions =
+                Directory.GetDirectories(
+                    refPackDir,
+                    "10.0.*");
 
-                    string latestRef =
-                        Path.Combine(
-                            versionDirs[^1],
-                            "ref",
-                            "net10.0");
+            if (versions.Length == 0)
+                return list;
 
-                    if (Directory.Exists(latestRef))
-                    {
-                        foreach (var dll
-                                 in Directory.GetFiles(
-                                     latestRef,
-                                     "*.dll"))
-                        {
-                            list.Add(
-                                MetadataReference.CreateFromFile(
-                                    dll));
-                        }
+            Array.Sort(versions);
 
-                        return list;
-                    }
-                }
-            }
-
-            string sharedDir =
+            string latest =
                 Path.Combine(
-                    programFiles,
-                    "dotnet",
-                    "shared",
-                    "Microsoft.NETCore.App");
+                    versions[^1],
+                    "ref",
+                    "net10.0");
 
-            if (Directory.Exists(sharedDir))
+            if (!Directory.Exists(latest))
+                return list;
+
+            foreach (var dll in
+                     Directory.GetFiles(
+                         latest,
+                         "*.dll"))
             {
-                var runtimeDirs =
-                    Directory.GetDirectories(
-                        sharedDir,
-                        "10.0.*");
-
-                if (runtimeDirs.Length > 0)
-                {
-                    Array.Sort(runtimeDirs);
-
-                    string targetDir =
-                        runtimeDirs[^1];
-
-                    foreach (var dll
-                             in Directory.GetFiles(
-                                 targetDir,
-                                 "*.dll"))
-                    {
-                        string name =
-                            Path.GetFileName(dll);
-
-                        if (!name.StartsWith(
-                                "System.Private.",
-                                StringComparison.OrdinalIgnoreCase) &&
-                            !name.StartsWith(
-                                "clr",
-                                StringComparison.OrdinalIgnoreCase) &&
-                            !name.StartsWith(
-                                "mscord",
-                                StringComparison.OrdinalIgnoreCase))
-                        {
-                            list.Add(
-                                MetadataReference.CreateFromFile(
-                                    dll));
-                        }
-                    }
-
-                    return list;
-                }
+                list.Add(
+                    MetadataReference.CreateFromFile(
+                        dll));
             }
 
             return list;
-        }
-    }
-
-    public static class HostModelUtils
-    {
-        public static void CreateStandaloneHost(
-            string appHostSourcePath,
-            string appHostDestinationPath,
-            string appBinaryFilePath)
-        {
-            byte[] bytes =
-                File.ReadAllBytes(
-                    appHostSourcePath);
-
-            byte[] pattern =
-                Encoding.ASCII.GetBytes(
-                    "c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2");
-
-            string fileName =
-                Path.GetFileName(
-                    appBinaryFilePath);
-
-            byte[] replacement =
-                Encoding.UTF8.GetBytes(
-                    fileName + "\0");
-
-            int index =
-                IndexOfBytes(
-                    bytes,
-                    pattern);
-
-            if (index != -1)
-            {
-                Array.Clear(
-                    bytes,
-                    index,
-                    1024);
-
-                Array.Copy(
-                    replacement,
-                    0,
-                    bytes,
-                    index,
-                    replacement.Length);
-            }
-            else
-            {
-                byte[] fallbackPattern =
-                    Encoding.UTF8.GetBytes(
-                        "apphost.dll\0");
-
-                int fallbackIndex =
-                    IndexOfBytes(
-                        bytes,
-                        fallbackPattern);
-
-                if (fallbackIndex != -1)
-                {
-                    Array.Clear(
-                        bytes,
-                        fallbackIndex,
-                        fallbackPattern.Length);
-
-                    Array.Copy(
-                        replacement,
-                        0,
-                        bytes,
-                        fallbackIndex,
-                        replacement.Length);
-                }
-            }
-
-            File.WriteAllBytes(
-                appHostDestinationPath,
-                bytes);
-        }
-
-        private static int IndexOfBytes(
-            byte[] source,
-            byte[] pattern)
-        {
-            for (
-                int i = 0;
-                i <= source.Length - pattern.Length;
-                i++)
-            {
-                bool match = true;
-
-                for (
-                    int j = 0;
-                    j < pattern.Length;
-                    j++)
-                {
-                    if (source[i + j] != pattern[j])
-                    {
-                        match = false;
-                        break;
-                    }
-                }
-
-                if (match)
-                    return i;
-            }
-
-            return -1;
         }
     }
 }
