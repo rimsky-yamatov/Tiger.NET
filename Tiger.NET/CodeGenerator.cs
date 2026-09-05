@@ -40,7 +40,7 @@ namespace Tiger.NET
             sb.AppendLine("        public static void Init() {}");
             sb.AppendLine("        public static void print(object s) => Console.Write(s);");
             sb.AppendLine("        public static void printline(object s) => Console.WriteLine(s);");
-            sb.AppendLine("        public static void printint(object i) => Console.Write(i);");
+            sb.AppendLine("        public static void printint(int i) => Console.Write(i);");
             sb.AppendLine("        public static void flush() => Console.Out.Flush();");
             sb.AppendLine("        public static string getchar() => Console.Read() == -1 ? \"\" : ((char)Console.Read()).ToString();");
             sb.AppendLine("        public static int ord(string s) => string.IsNullOrEmpty(s) ? -1 : (int)s[0];");
@@ -139,13 +139,6 @@ namespace Tiger.NET
                     EmitNode(b, sb, indent);
                 }
             }
-            else if (node is SeqExpNode seqNode)
-            {
-                foreach (var expr in seqNode.Exprs)
-                {
-                    EmitNode(expr, sb, indent);
-                }
-            }
             else if (node is IfExpNode ifNode)
             {
                 sb.Append($"{indent}if (TigerStdLib.IsTruthy(");
@@ -173,7 +166,6 @@ namespace Tiger.NET
             }
             else if (node is ForExpNode forNode)
             {
-                // int 型へキャストして C# の標準 for ループを出力
                 sb.Append($"{indent}for (int {forNode.VarName} = Convert.ToInt32(");
                 EmitExprInline(forNode.EscapeStart, sb);
                 sb.Append($"), __limit_{forNode.VarName} = Convert.ToInt32(");
@@ -206,25 +198,6 @@ namespace Tiger.NET
                 EmitExprInline(a.Value, sb);
             }
             else if (node is BreakExpNode) sb.Append("break");
-            else if (node is SeqExpNode seq)
-            {
-                sb.Append("((Func<dynamic>)(() => { ");
-                for (int i = 0; i < seq.Exprs.Count; i++)
-                {
-                    if (i == seq.Exprs.Count - 1)
-                    {
-                        sb.Append("return ");
-                        EmitExprInline(seq.Exprs[i], sb);
-                        sb.Append("; ");
-                    }
-                    else
-                    {
-                        EmitExprInline(seq.Exprs[i], sb);
-                        sb.Append("; ");
-                    }
-                }
-                sb.Append("}))()");
-            }
             else if (node is BinaryExpNode b)
             {
                 string op = b.Op switch
