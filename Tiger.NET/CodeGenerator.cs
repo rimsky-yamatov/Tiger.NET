@@ -76,7 +76,11 @@ namespace Tiger.NET
 
         private static void EmitFunctionBody(ExpNode node, StringBuilder sb, string indent)
         {
-            if (node == null) return;
+            if (node == null)
+            {
+                sb.AppendLine($"{indent}return 0;");
+                return;
+            }
 
             if (node is IfExpNode ifNode)
             {
@@ -148,8 +152,22 @@ namespace Tiger.NET
                 sb.AppendLine($"{indent}}}");
                 sb.AppendLine($"{indent}return 0;");
             }
+            else if (node is BreakExpNode)
+            {
+                sb.AppendLine($"{indent}break;");
+                sb.AppendLine($"{indent}return 0;");
+            }
+            else if (node is CallExpNode || node is AssignNode || node is BinaryExpNode ||
+                     node is StringLiteralNode || node is IntLiteralNode || node is VarAccessNode)
+            {
+                // 標準的な式は展開せず、そのまま return文として出力
+                sb.Append($"{indent}return ");
+                EmitExprInline(node, sb);
+                sb.AppendLine(";");
+            }
             else
             {
+                // Block/Sequence のみ展開する
                 var seqList = GetChildExpressions(node);
                 if (seqList != null && seqList.Count > 0)
                 {
@@ -232,17 +250,32 @@ namespace Tiger.NET
                 EmitExprInline(endExp, sb);
                 sb.AppendLine($"); {varName} <= __limit_{varName}; {varName}++)");
                 sb.AppendLine($"{indent}{{");
-
                 EmitNode(bodyExp, sb, indent + "    ");
-
                 sb.AppendLine($"{indent}}}");
+            }
+            else if (node is BreakExpNode)
+            {
+                sb.AppendLine($"{indent}break;");
             }
             else if (node is FunctionDeclNode)
             {
                 // Outer declarations handled in EmitCSharp
             }
+            else if (node is CallExpNode || node is AssignNode || node is BinaryExpNode ||
+                     node is StringLiteralNode || node is IntLiteralNode || node is VarAccessNode)
+            {
+                // 動的展開に巻き込まれないよう、事前に通常式として出力
+                sb.Append(indent);
+                if (!(node is AssignNode || node is CallExpNode))
+                {
+                    sb.Append("_ = ");
+                }
+                EmitExprInline(node, sb);
+                sb.AppendLine(";");
+            }
             else
             {
+                // 完全に未知のノード（SeqNode等）のみ子要素を展開する
                 var children = GetChildExpressions(node);
                 if (children != null && children.Count > 0)
                 {
@@ -254,11 +287,7 @@ namespace Tiger.NET
                 else
                 {
                     sb.Append(indent);
-                    // CS0201回避のため、代入やメソッド呼び出し以外の式には「_ = 」を付加する
-                    if (!(node is AssignNode || node is CallExpNode))
-                    {
-                        sb.Append("_ = ");
-                    }
+                    sb.Append("_ = ");
                     EmitExprInline(node, sb);
                     sb.AppendLine(";");
                 }
@@ -342,7 +371,6 @@ namespace Tiger.NET
                         }
                         else
                         {
-                            // CS0201回避
                             if (!(children[i] is AssignNode || children[i] is CallExpNode))
                             {
                                 sb.Append("_ = ");
