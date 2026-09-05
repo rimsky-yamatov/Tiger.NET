@@ -74,7 +74,7 @@ namespace Tiger.NET
             sb.AppendLine($"{indent}}}");
         }
 
-        private static void EmitFunctionBody(ExpNode node, StringBuilder sb, string indent)
+        private static void EmitFunctionBody(ExpNode? node, StringBuilder sb, string indent)
         {
             if (node == null)
             {
@@ -138,9 +138,9 @@ namespace Tiger.NET
             else if (node is ForExpNode forNode)
             {
                 string varName = GetStringProp(forNode, "VarName", "Var", "VariableName", "Name", "Id") ?? "i";
-                ExpNode startExp = GetExpProp(forNode, "Start", "Low", "From", "Init", "EscapeStart", "E1", "A1");
-                ExpNode endExp = GetExpProp(forNode, "End", "High", "To", "Limit", "EscapeEnd", "E2", "A2");
-                ExpNode bodyExp = GetExpProp(forNode, "Body", "Then", "Exp", "Expression") ?? forNode.Body;
+                ExpNode? startExp = GetExpProp(forNode, "Start", "Low", "From", "Init", "EscapeStart", "E1", "A1");
+                ExpNode? endExp = GetExpProp(forNode, "End", "High", "To", "Limit", "EscapeEnd", "E2", "A2");
+                ExpNode? bodyExp = GetExpProp(forNode, "Body", "Then", "Exp", "Expression") ?? forNode.Body;
 
                 sb.Append($"{indent}for (int {varName} = Convert.ToInt32(");
                 EmitExprInline(startExp, sb);
@@ -160,14 +160,12 @@ namespace Tiger.NET
             else if (node is CallExpNode || node is AssignNode || node is BinaryExpNode ||
                      node is StringLiteralNode || node is IntLiteralNode || node is VarAccessNode)
             {
-                // 標準的な式は展開せず、そのまま return文として出力
                 sb.Append($"{indent}return ");
                 EmitExprInline(node, sb);
                 sb.AppendLine(";");
             }
             else
             {
-                // Block/Sequence のみ展開する
                 var seqList = GetChildExpressions(node);
                 if (seqList != null && seqList.Count > 0)
                 {
@@ -192,7 +190,7 @@ namespace Tiger.NET
             }
         }
 
-        private static void EmitNode(ExpNode node, StringBuilder sb, string indent)
+        private static void EmitNode(ExpNode? node, StringBuilder sb, string indent)
         {
             if (node == null) return;
 
@@ -240,9 +238,9 @@ namespace Tiger.NET
             else if (node is ForExpNode forNode)
             {
                 string varName = GetStringProp(forNode, "VarName", "Var", "VariableName", "Name", "Id") ?? "i";
-                ExpNode startExp = GetExpProp(forNode, "Start", "Low", "From", "Init", "EscapeStart", "E1", "A1");
-                ExpNode endExp = GetExpProp(forNode, "End", "High", "To", "Limit", "EscapeEnd", "E2", "A2");
-                ExpNode bodyExp = GetExpProp(forNode, "Body", "Then", "Exp", "Expression") ?? forNode.Body;
+                ExpNode? startExp = GetExpProp(forNode, "Start", "Low", "From", "Init", "EscapeStart", "E1", "A1");
+                ExpNode? endExp = GetExpProp(forNode, "End", "High", "To", "Limit", "EscapeEnd", "E2", "A2");
+                ExpNode? bodyExp = GetExpProp(forNode, "Body", "Then", "Exp", "Expression") ?? forNode.Body;
 
                 sb.Append($"{indent}for (int {varName} = Convert.ToInt32(");
                 EmitExprInline(startExp, sb);
@@ -259,12 +257,11 @@ namespace Tiger.NET
             }
             else if (node is FunctionDeclNode)
             {
-                // Outer declarations handled in EmitCSharp
+                // Handled in EmitCSharp
             }
             else if (node is CallExpNode || node is AssignNode || node is BinaryExpNode ||
                      node is StringLiteralNode || node is IntLiteralNode || node is VarAccessNode)
             {
-                // 動的展開に巻き込まれないよう、事前に通常式として出力
                 sb.Append(indent);
                 if (!(node is AssignNode || node is CallExpNode))
                 {
@@ -275,7 +272,6 @@ namespace Tiger.NET
             }
             else
             {
-                // 完全に未知のノード（SeqNode等）のみ子要素を展開する
                 var children = GetChildExpressions(node);
                 if (children != null && children.Count > 0)
                 {
@@ -294,7 +290,7 @@ namespace Tiger.NET
             }
         }
 
-        private static void EmitExprInline(ExpNode node, StringBuilder sb)
+        private static void EmitExprInline(ExpNode? node, StringBuilder sb)
         {
             if (node == null)
             {
@@ -388,7 +384,7 @@ namespace Tiger.NET
             }
         }
 
-        private static string GetStringProp(object obj, params string[] names)
+        private static string? GetStringProp(object? obj, params string[] names)
         {
             if (obj == null) return null;
             var type = obj.GetType();
@@ -410,7 +406,7 @@ namespace Tiger.NET
             return null;
         }
 
-        private static ExpNode GetExpProp(object obj, params string[] names)
+        private static ExpNode? GetExpProp(object? obj, params string[] names)
         {
             if (obj == null) return null;
             var type = obj.GetType();
@@ -432,7 +428,7 @@ namespace Tiger.NET
             return null;
         }
 
-        private static List<ExpNode> GetChildExpressions(object obj)
+        private static List<ExpNode>? GetChildExpressions(object? obj)
         {
             if (obj == null) return null;
             var type = obj.GetType();
