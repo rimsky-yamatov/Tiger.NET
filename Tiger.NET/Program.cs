@@ -99,16 +99,17 @@ namespace Tiger.NET
         private static void PrintHelp()
         {
             Console.WriteLine("Tiger.NET Compiler");
+            Console.WriteLine("Version: 1.0.0");
             Console.WriteLine("Usage: Tiger.NET <source.tig> [options]");
             Console.WriteLine("Options:");
-            Console.WriteLine("  /o:<file>             Specify output executable/dll path");
-            Console.WriteLine("  /tfm:<framework>      Specify target framework (e.g. net9.0, net10.0)");
-            Console.WriteLine("  /target:<type>        Target build type: exe, win, dll");
-            Console.WriteLine("  /optimize:<level>     Optimization level: 0, 1, 2");
-            Console.WriteLine("  /singlefile           Bundle output into a single file");
-            Console.WriteLine("  /selfcontained        Package runtime inside the output binary");
-            Console.WriteLine("  /debug                Generate debug build");
-            Console.WriteLine("  /verbose              Show verbose compiler pipeline logs");
+            Console.WriteLine("    /o:<file>             Specify output executable/dll path");
+            Console.WriteLine("    /tfm:<framework>      Specify target framework (e.g. net9.0, net10.0)");
+            Console.WriteLine("    /target:<type>        Target build type: exe, win, dll");
+            Console.WriteLine("    /optimize:<level>     Optimization level: 0, 1, 2");
+            Console.WriteLine("    /singlefile           Bundle output into a single file");
+            Console.WriteLine("    /selfcontained        Package runtime inside the output binary");
+            Console.WriteLine("    /debug                Generate debug build");
+            Console.WriteLine("    /verbose              Show verbose compiler pipeline logs");
         }
     }
 }
