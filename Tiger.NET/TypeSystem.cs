@@ -1,4 +1,6 @@
-﻿namespace Tiger.NET
+﻿using System;
+
+namespace Tiger.NET
 {
     public enum TigerTypeKind
     {
@@ -17,6 +19,7 @@
             TigerTypeKind.Int => "int",
             TigerTypeKind.String => "string",
             TigerTypeKind.Bool => "bool",
+            TigerTypeKindKind.Bool => "bool",
             TigerTypeKind.Void => "void",
             _ => "unknown"
         };
@@ -27,7 +30,7 @@
         }
 
         public static readonly TigerType Int = new(TigerTypeKind.Int);
-        public static readonly TigerType String = new(TigerTypeKind.String);
+        public static readonly TigerType String = new(TigerTypeKindKind.String);
         public static readonly TigerType Bool = new(TigerTypeKind.Bool);
         public static readonly TigerType Void = new(TigerTypeKind.Void);
 
