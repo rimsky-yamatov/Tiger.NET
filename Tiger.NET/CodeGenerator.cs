@@ -38,9 +38,9 @@ namespace Tiger.NET
 
             sb.AppendLine("    public static class TigerStdLib {");
             sb.AppendLine("        public static void Init() {}");
-            sb.AppendLine("        public static void print(object s) => Console.Write(s);");
+            sb.AppendLine("        public static void print(object s) { Console.Write(s); Console.Out.Flush(); }");
             sb.AppendLine("        public static void printline(object s) => Console.WriteLine(s);");
-            sb.AppendLine("        public static void printint(int i) => Console.Write(i);");
+            sb.AppendLine("        public static void printint(object i) { Console.Write(i); Console.Out.Flush(); }");
             sb.AppendLine("        public static void flush() => Console.Out.Flush();");
             sb.AppendLine("        public static string getchar() => Console.Read() == -1 ? \"\" : ((char)Console.Read()).ToString();");
             sb.AppendLine("        public static int ord(string s) => string.IsNullOrEmpty(s) ? -1 : (int)s[0];");
