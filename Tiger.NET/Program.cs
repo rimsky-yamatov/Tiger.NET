@@ -17,12 +17,16 @@ namespace Tiger.NET
 
             foreach (var arg in args)
             {
-                // /o: または /O: 出力ファイル指定
+                // /o: 出力ファイル指定
                 if (arg.StartsWith("/o:", StringComparison.OrdinalIgnoreCase))
                 {
                     options.OutputFilePath = arg.Substring(3);
                 }
-                // /tfw: ターゲットフレームワーク指定
+                // /tfm: または /tfw: ターゲットフレームワーク指定
+                else if (arg.StartsWith("/tfm:", StringComparison.OrdinalIgnoreCase))
+                {
+                    options.TargetFramework = arg.Substring(5).ToLower();
+                }
                 else if (arg.StartsWith("/tfw:", StringComparison.OrdinalIgnoreCase))
                 {
                     options.TargetFramework = arg.Substring(5).ToLower();
@@ -98,7 +102,7 @@ namespace Tiger.NET
             Console.WriteLine("Usage: Tiger.NET <source.tig> [options]");
             Console.WriteLine("Options:");
             Console.WriteLine("  /o:<file>             Specify output executable/dll path");
-            Console.WriteLine("  /tfw:<framework>      Specify target framework (e.g. net9.0, net10.0)");
+            Console.WriteLine("  /tfm:<framework>      Specify target framework (e.g. net9.0, net10.0)");
             Console.WriteLine("  /target:<type>        Target build type: exe, win, dll");
             Console.WriteLine("  /optimize:<level>     Optimization level: 0, 1, 2");
             Console.WriteLine("  /singlefile           Bundle output into a single file");
