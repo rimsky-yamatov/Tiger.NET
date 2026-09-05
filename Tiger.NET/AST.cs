@@ -36,9 +36,17 @@ namespace Tiger.NET
         public List<FuncParam> Params { get; set; }
         public string ReturnType { get; set; }
         public ExpNode Body { get; set; }
-        public FunctionDeclNode(string name, List<FuncParam> @params, string returnType, ExpNode body)
+
+        public FunctionDeclNode(
+            string name,
+            List<FuncParam> @params,
+            string returnType,
+            ExpNode body)
         {
-            Name = name; Params = @params; ReturnType = returnType; Body = body;
+            Name = name;
+            Params = @params;
+            ReturnType = returnType;
+            Body = body;
         }
     }
 
@@ -46,21 +54,35 @@ namespace Tiger.NET
     {
         public string VarName { get; set; }
         public ExpNode Value { get; set; }
-        public AssignNode(string varName, ExpNode val) { VarName = varName; Value = val; }
+        public AssignNode(string varName, ExpNode val)
+        {
+            VarName = varName;
+            Value = val;
+        }
     }
 
     public class CallExpNode : ExpNode
     {
         public string FuncName { get; set; }
         public List<ExpNode> Args { get; set; }
-        public CallExpNode(string funcName, List<ExpNode> args) { FuncName = funcName; Args = args; }
+
+        public CallExpNode(string funcName, List<ExpNode> args)
+        {
+            FuncName = funcName;
+            Args = args;
+        }
     }
 
     public class LetExpNode : ExpNode
     {
         public List<ExpNode> Decs { get; set; }
         public List<ExpNode> Body { get; set; }
-        public LetExpNode(List<ExpNode> decs, List<ExpNode> body) { Decs = decs; Body = body; }
+
+        public LetExpNode(List<ExpNode> decs, List<ExpNode> body)
+        {
+            Decs = decs;
+            Body = body;
+        }
     }
 
     public class BinaryExpNode : ExpNode
@@ -68,7 +90,13 @@ namespace Tiger.NET
         public string Op { get; set; }
         public ExpNode Left { get; set; }
         public ExpNode Right { get; set; }
-        public BinaryExpNode(string op, ExpNode left, ExpNode right) { Op = op; Left = left; Right = right; }
+
+        public BinaryExpNode(string op, ExpNode left, ExpNode right)
+        {
+            Op = op;
+            Left = left;
+            Right = right;
+        }
     }
 
     public class IfExpNode : ExpNode
@@ -76,17 +104,30 @@ namespace Tiger.NET
         public ExpNode Cond { get; set; }
         public ExpNode Then { get; set; }
         public ExpNode? Else { get; set; }
-        public IfExpNode(ExpNode cond, ExpNode thenExp, ExpNode? elseExp = null)
+
+        public IfExpNode(
+            ExpNode cond,
+            ExpNode thenExp,
+            ExpNode? elseExp = null)
         {
-            Cond = cond; Then = thenExp; Else = elseExp;
+            Cond = cond;
+            Then = thenExp;
+            Else = elseExp;
         }
     }
 
     public class WhileExpNode : ExpNode
     {
         public ExpNode Cond { get; set; }
-        public ExpNode Body { get; set; }
-        public WhileExpNode(ExpNode cond, ExpNode body) { Cond = cond; Body = body; }
+        public List<ExpNode> Body { get; set; }
+
+        public WhileExpNode(
+            ExpNode cond,
+            List<ExpNode> body)
+        {
+            Cond = cond;
+            Body = body;
+        }
     }
 
     public class ForExpNode : ExpNode
@@ -94,14 +135,24 @@ namespace Tiger.NET
         public string VarName { get; set; }
         public ExpNode EscapeStart { get; set; }
         public ExpNode EscapeEnd { get; set; }
-        public ExpNode Body { get; set; }
-        public ForExpNode(string varName, ExpNode start, ExpNode end, ExpNode body)
+        public List<ExpNode> Body { get; set; }
+
+        public ForExpNode(
+            string varName,
+            ExpNode start,
+            ExpNode end,
+            List<ExpNode> body)
         {
-            VarName = varName; EscapeStart = start; EscapeEnd = end; Body = body;
+            VarName = varName;
+            EscapeStart = start;
+            EscapeEnd = end;
+            Body = body;
         }
     }
 
-    public class BreakExpNode : ExpNode { }
+    public class BreakExpNode : ExpNode
+    {
+    }
 
     public class VarAccessNode : ExpNode
     {
