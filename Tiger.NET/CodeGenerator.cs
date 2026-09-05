@@ -166,13 +166,19 @@ namespace Tiger.NET
             }
             else if (node is ForExpNode forNode)
             {
-                sb.Append($"{indent}for (dynamic {forNode.VarName} = ");
+                // dynamic 変数の型エラーを防ぐため while 構文へ展開
+                sb.Append($"{indent}dynamic {forNode.VarName} = ");
                 EmitExprInline(forNode.EscapeStart, sb);
-                sb.Append($"; {forNode.VarName} <= ");
+                sb.AppendLine(";");
+
+                sb.Append($"{indent}dynamic __limit_{forNode.VarName} = ");
                 EmitExprInline(forNode.EscapeEnd, sb);
-                sb.AppendLine($"; {forNode.VarName}++)");
+                sb.AppendLine(";");
+
+                sb.AppendLine($"{indent}while ({forNode.VarName} <= __limit_{forNode.VarName})");
                 sb.AppendLine($"{indent}{{");
                 EmitNode(forNode.Body, sb, indent + "    ");
+                sb.AppendLine($"{indent}    {forNode.VarName}++;");
                 sb.AppendLine($"{indent}}}");
             }
             else if (node is FunctionDeclNode)
