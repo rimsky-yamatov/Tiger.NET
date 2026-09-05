@@ -166,7 +166,6 @@ namespace Tiger.NET
             }
             else if (node is ForExpNode forNode)
             {
-                // dynamic 変数の型エラーを防ぐため while 構文へ展開
                 sb.Append($"{indent}dynamic {forNode.VarName} = ");
                 EmitExprInline(forNode.EscapeStart, sb);
                 sb.AppendLine(";");
