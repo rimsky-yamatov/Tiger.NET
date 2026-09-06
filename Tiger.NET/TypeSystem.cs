@@ -1,0 +1,233 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Tiger.NET
+{
+    public enum TigerTypeKind
+    {
+        Int,
+        String,
+        Bool,
+        Void,
+        Array,
+        Struct
+    }
+
+    public sealed class TigerType : IEquatable<TigerType>
+    {
+        public TigerTypeKind Kind { get; }
+        public TigerType? ElementType { get; }
+        public string? StructName { get; }
+
+        private TigerType(TigerTypeKind kind, TigerType? elementType = null, string? structName = null)
+        {
+            Kind = kind;
+            ElementType = elementType;
+            StructName = structName;
+        }
+
+        public static readonly TigerType Int = new(TigerTypeKind.Int);
+        public static readonly TigerType String = new(TigerTypeKind.String);
+        public static readonly TigerType Bool = new(TigerTypeKind.Bool);
+        public static readonly TigerType Void = new(TigerTypeKind.Void);
+
+        public static TigerType Array(TigerType elementType)
+        {
+            return new TigerType(TigerTypeKind.Array, elementType);
+        }
+
+        public static TigerType Struct(string name)
+        {
+            return new TigerType(TigerTypeKind.Struct, null, name);
+        }
+
+        public bool Equals(TigerType? other)
+        {
+            if (other == null)
+                return false;
+
+            if (Kind != other.Kind)
+                return false;
+
+            if (Kind == TigerTypeKind.Array)
+                return ElementType!.Equals(other.ElementType);
+
+            if (Kind == TigerTypeKind.Struct)
+                return string.Equals(StructName, other.StructName, StringComparison.Ordinal);
+
+            return true;
+        }
+
+        public override bool Equals(object? obj)
+        {
+            return obj is TigerType other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Kind, ElementType, StructName);
+        }
+
+        public override string ToString()
+        {
+            return Kind switch
+            {
+                TigerTypeKind.Int => "int",
+                TigerTypeKind.String => "string",
+                TigerTypeKind.Bool => "bool",
+                TigerTypeKind.Void => "void",
+                TigerTypeKind.Array => $"{ElementType}[]",
+                TigerTypeKind.Struct => StructName ?? "struct",
+                _ => "unknown"
+            };
+        }
+    }
+
+    public sealed class TigerFunction
+    {
+        public string Name { get; }
+        public IReadOnlyList<TigerType> Parameters { get; }
+        public TigerType ReturnType { get; }
+
+        public TigerFunction(
+            string name,
+            IEnumerable<TigerType> parameters,
+            TigerType returnType)
+        {
+            Name = name;
+            Parameters = parameters.ToList();
+            ReturnType = returnType;
+        }
+    }
+
+    public sealed class TigerStruct
+    {
+        public string Name { get; }
+        public Dictionary<string, TigerType> Fields { get; }
+
+        public TigerStruct(
+            string name,
+            Dictionary<string, TigerType> fields)
+        {
+            Name = name;
+            Fields = new Dictionary<string, TigerType>(
+                fields,
+                StringComparer.Ordinal);
+        }
+
+        public bool HasField(string name)
+        {
+            return Fields.ContainsKey(name);
+        }
+
+        public TigerType GetField(string name)
+        {
+            if (!Fields.TryGetValue(name, out var type))
+                throw new Exception(
+                    $"Unknown field '{name}' in struct '{Name}'.");
+
+            return type;
+        }
+    }
+
+    public sealed class ScopeStack
+    {
+        private readonly Stack<Dictionary<string, TigerType>> _variableScopes = new();
+        private readonly Stack<Dictionary<string, TigerFunction>> _functionScopes = new();
+        private readonly Stack<Dictionary<string, TigerStruct>> _structScopes = new();
+
+        public ScopeStack()
+        {
+            Push();
+        }
+
+        public void Push()
+        {
+            _variableScopes.Push(
+                new Dictionary<string, TigerType>(StringComparer.Ordinal));
+
+            _functionScopes.Push(
+                new Dictionary<string, TigerFunction>(StringComparer.Ordinal));
+
+            _structScopes.Push(
+                new Dictionary<string, TigerStruct>(StringComparer.Ordinal));
+        }
+
+        public void Pop()
+        {
+            if (_variableScopes.Count <= 1)
+                throw new InvalidOperationException("Cannot pop global scope.");
+
+            _variableScopes.Pop();
+            _functionScopes.Pop();
+            _structScopes.Pop();
+        }
+
+        public void DeclareVariable(string name, TigerType type)
+        {
+            var scope = _variableScopes.Peek();
+
+            if (scope.ContainsKey(name))
+                throw new Exception(
+                    $"Variable '{name}' is already declared in this scope.");
+
+            scope[name] = type;
+        }
+
+        public void DeclareFunction(TigerFunction function)
+        {
+            var scope = _functionScopes.Peek();
+
+            if (scope.ContainsKey(function.Name))
+                throw new Exception(
+                    $"Function '{function.Name}' is already declared in this scope.");
+
+            scope[function.Name] = function;
+        }
+
+        public void DeclareStruct(TigerStruct structure)
+        {
+            var scope = _structScopes.Peek();
+
+            if (scope.ContainsKey(structure.Name))
+                throw new Exception(
+                    $"Struct '{structure.Name}' is already declared in this scope.");
+
+            scope[structure.Name] = structure;
+        }
+
+        public TigerType? LookupVariable(string name)
+        {
+            foreach (var scope in _variableScopes)
+            {
+                if (scope.TryGetValue(name, out var type))
+                    return type;
+            }
+
+            return null;
+        }
+
+        public TigerFunction? LookupFunction(string name)
+        {
+            foreach (var scope in _functionScopes)
+            {
+                if (scope.TryGetValue(name, out var function))
+                    return function;
+            }
+
+            return null;
+        }
+
+        public TigerStruct? LookupStruct(string name)
+        {
+            foreach (var scope in _structScopes)
+            {
+                if (scope.TryGetValue(name, out var structure))
+                    return structure;
+            }
+
+            return null;
+        }
+    }
+}
