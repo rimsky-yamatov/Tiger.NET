@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace Tiger.NET
 {
@@ -10,56 +11,32 @@ namespace Tiger.NET
     public class StringLiteralNode : ExpNode
     {
         public string Value { get; set; }
-
-        public StringLiteralNode(string val)
-        {
-            Value = val;
-        }
+        public StringLiteralNode(string value) => Value = value;
     }
 
     public class IntLiteralNode : ExpNode
     {
         public int Value { get; set; }
-
-        public IntLiteralNode(int val)
-        {
-            Value = val;
-        }
+        public IntLiteralNode(int value) => Value = value;
     }
 
     public class BoolLiteralNode : ExpNode
     {
         public bool Value { get; set; }
-
-        public BoolLiteralNode(bool val)
-        {
-            Value = val;
-        }
-    }
-
-    public class UnaryExpNode : ExpNode
-    {
-        public string Op { get; set; }
-        public ExpNode Operand { get; set; }
-
-        public UnaryExpNode(string op, ExpNode operand)
-        {
-            Op = op;
-            Operand = operand;
-        }
+        public BoolLiteralNode(bool value) => Value = value;
     }
 
     public class VarDeclNode : ExpNode
     {
         public string Name { get; set; }
-        public string? DeclaredType { get; set; }
+        public string? TypeName { get; set; }
         public ExpNode Init { get; set; }
 
-        public VarDeclNode(string name, string? declaredType, ExpNode init)
+        public VarDeclNode(string name, ExpNode init, string? typeName = null)
         {
             Name = name;
-            DeclaredType = declaredType;
             Init = init;
+            TypeName = typeName;
         }
     }
 
@@ -80,30 +57,54 @@ namespace Tiger.NET
         public string Name { get; set; }
         public List<FuncParam> Params { get; set; }
         public string ReturnType { get; set; }
-        public ExpNode Body { get; set; }
+        public List<ExpNode> Body { get; set; }
 
         public FunctionDeclNode(
             string name,
-            List<FuncParam> @params,
+            List<FuncParam> parameters,
             string returnType,
-            ExpNode body)
+            List<ExpNode> body)
         {
             Name = name;
-            Params = @params;
+            Params = parameters;
             ReturnType = returnType;
             Body = body;
         }
     }
 
+    public class StructDeclNode : ExpNode
+    {
+        public string Name { get; set; }
+        public List<StructField> Fields { get; set; }
+
+        public StructDeclNode(string name, List<StructField> fields)
+        {
+            Name = name;
+            Fields = fields;
+        }
+    }
+
+    public class StructField
+    {
+        public string Name { get; set; }
+        public string TypeName { get; set; }
+
+        public StructField(string name, string typeName)
+        {
+            Name = name;
+            TypeName = typeName;
+        }
+    }
+
     public class AssignNode : ExpNode
     {
-        public string VarName { get; set; }
+        public ExpNode Target { get; set; }
         public ExpNode Value { get; set; }
 
-        public AssignNode(string varName, ExpNode val)
+        public AssignNode(ExpNode target, ExpNode value)
         {
-            VarName = varName;
-            Value = val;
+            Target = target;
+            Value = value;
         }
     }
 
@@ -131,6 +132,16 @@ namespace Tiger.NET
         }
     }
 
+    public class BlockNode : ExpNode
+    {
+        public List<ExpNode> Expressions { get; set; }
+
+        public BlockNode(List<ExpNode> expressions)
+        {
+            Expressions = expressions;
+        }
+    }
+
     public class BinaryExpNode : ExpNode
     {
         public string Op { get; set; }
@@ -145,20 +156,32 @@ namespace Tiger.NET
         }
     }
 
+    public class UnaryExpNode : ExpNode
+    {
+        public string Op { get; set; }
+        public ExpNode Operand { get; set; }
+
+        public UnaryExpNode(string op, ExpNode operand)
+        {
+            Op = op;
+            Operand = operand;
+        }
+    }
+
     public class IfExpNode : ExpNode
     {
         public ExpNode Cond { get; set; }
-        public ExpNode Then { get; set; }
-        public ExpNode? Else { get; set; }
+        public List<ExpNode> Then { get; set; }
+        public List<ExpNode>? Else { get; set; }
 
         public IfExpNode(
             ExpNode cond,
-            ExpNode thenExp,
-            ExpNode? elseExp = null)
+            List<ExpNode> thenBody,
+            List<ExpNode>? elseBody = null)
         {
             Cond = cond;
-            Then = thenExp;
-            Else = elseExp;
+            Then = thenBody;
+            Else = elseBody;
         }
     }
 
@@ -198,6 +221,10 @@ namespace Tiger.NET
     {
     }
 
+    public class ContinueExpNode : ExpNode
+    {
+    }
+
     public class VarAccessNode : ExpNode
     {
         public string Name { get; set; }
@@ -205,6 +232,135 @@ namespace Tiger.NET
         public VarAccessNode(string name)
         {
             Name = name;
+        }
+    }
+
+    public class ArrayLiteralNode : ExpNode
+    {
+        public List<ExpNode> Elements { get; set; }
+
+        public ArrayLiteralNode(List<ExpNode> elements)
+        {
+            Elements = elements;
+        }
+    }
+
+    public class ArrayAccessNode : ExpNode
+    {
+        public ExpNode Array { get; set; }
+        public ExpNode Index { get; set; }
+
+        public ArrayAccessNode(ExpNode array, ExpNode index)
+        {
+            Array = array;
+            Index = index;
+        }
+    }
+
+    public class FieldAccessNode : ExpNode
+    {
+        public ExpNode Target { get; set; }
+        public string FieldName { get; set; }
+
+        public FieldAccessNode(ExpNode target, string fieldName)
+        {
+            Target = target;
+            FieldName = fieldName;
+        }
+    }
+
+    public class StructInitNode : ExpNode
+    {
+        public string StructName { get; set; }
+        public List<ExpNode> Args { get; set; }
+
+        public StructInitNode(string structName, List<ExpNode> args)
+        {
+            StructName = structName;
+            Args = args;
+        }
+    }
+
+    public class TigerType
+    {
+        public string Name { get; }
+        public TigerType? ElementType { get; }
+
+        public TigerType(string name, TigerType? elementType = null)
+        {
+            Name = name;
+            ElementType = elementType;
+        }
+
+        public bool IsArray => Name == "array";
+
+        public override string ToString()
+        {
+            return IsArray && ElementType != null
+                ? ElementType + "[]"
+                : Name;
+        }
+
+        public override bool Equals(object? obj)
+        {
+            if (obj is not TigerType other)
+                return false;
+
+            if (IsArray != other.IsArray)
+                return false;
+
+            if (IsArray)
+                return ElementType != null &&
+                       other.ElementType != null &&
+                       ElementType.Equals(other.ElementType);
+
+            return Name == other.Name;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Name, ElementType);
+        }
+
+        public static readonly TigerType Int = new("int");
+        public static readonly TigerType String = new("string");
+        public static readonly TigerType Bool = new("bool");
+        public static readonly TigerType Void = new("void");
+
+        public static TigerType ArrayOf(TigerType type)
+        {
+            return new TigerType("array", type);
+        }
+    }
+
+    public class TigerFunction
+    {
+        public string Name { get; }
+        public List<TigerType> Parameters { get; }
+        public TigerType ReturnType { get; }
+
+        public TigerFunction(
+            string name,
+            List<TigerType> parameters,
+            TigerType returnType)
+        {
+            Name = name;
+            Parameters = parameters;
+            ReturnType = returnType;
+        }
+    }
+
+    public class TigerStruct
+    {
+        public string Name { get; }
+        public Dictionary<string, TigerType> Fields { get; }
+
+        public TigerStruct(
+            string name,
+            Dictionary<string, TigerType> fields)
+        {
+            Name = name;
+            Fields = fields;
         }
     }
 }
