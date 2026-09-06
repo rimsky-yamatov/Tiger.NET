@@ -19,36 +19,33 @@ namespace Tiger.NET
                 ? _tokens[_idx]
                 : _tokens[^1];
 
+        private Token Peek(int offset)
+        {
+            int index = _idx + offset;
+            return index < _tokens.Count
+                ? _tokens[index]
+                : _tokens[^1];
+        }
+
         private Token Consume(TokenType type)
         {
             if (Current.Type != type)
             {
                 throw new Exception(
-                    $"Syntax Error: Expected {type}, " +
-                    $"got {Current.Type} ('{Current.Value}').");
+                    $"Syntax Error at {Current.Line}:{Current.Column}: expected {type}, got {Current.Type} ('{Current.Value}')");
             }
 
-            var token = Current;
-            _idx++;
-            return token;
+            return _tokens[_idx++];
         }
 
         public ExpNode Parse()
         {
-            while (Current.Type == TokenType.Semicolon)
-                Consume(TokenType.Semicolon);
-
             ExpNode result = ParseExp();
 
             while (Current.Type == TokenType.Semicolon)
                 Consume(TokenType.Semicolon);
 
-            if (Current.Type != TokenType.EOF)
-            {
-                throw new Exception(
-                    $"Syntax Error: Unexpected token " +
-                    $"'{Current.Value}' after expression.");
-            }
+            Consume(TokenType.EOF);
 
             return result;
         }
@@ -73,7 +70,13 @@ namespace Tiger.NET
                 return new BreakExpNode();
             }
 
-            return ParseAssignOrBinary();
+            if (Current.Type == TokenType.Continue)
+            {
+                Consume(TokenType.Continue);
+                return new ContinueExpNode();
+            }
+
+            return ParseAssignment();
         }
 
         private ExpNode ParseLet()
@@ -84,94 +87,61 @@ namespace Tiger.NET
 
             while (Current.Type != TokenType.In)
             {
-                if (Current.Type == TokenType.EOF)
-                    throw new Exception(
-                        "Syntax Error: Expected 'in'.");
-
                 if (Current.Type == TokenType.Var)
                 {
-                    Consume(TokenType.Var);
-
-                    string name =
-                        Consume(TokenType.Identifier).Value;
-
-                    string? type = null;
-
-                    if (Current.Type == TokenType.Colon)
-                    {
-                        Consume(TokenType.Colon);
-
-                        type =
-                            Consume(TokenType.Identifier).Value;
-                    }
-
-                    Consume(TokenType.Assign);
-
-                    ExpNode init = ParseExp();
-
-                    declarations.Add(
-                        new VarDeclNode(
-                            name,
-                            type,
-                            init));
-
-                    if (Current.Type == TokenType.Semicolon)
-                        Consume(TokenType.Semicolon);
-
-                    continue;
+                    declarations.Add(ParseVarDecl());
+                    ConsumeOptionalSemicolon();
                 }
-
-                if (Current.Type == TokenType.Function)
+                else if (Current.Type == TokenType.Function)
                 {
-                    declarations.Add(
-                        ParseFunctionDecl());
-
-                    if (Current.Type == TokenType.Semicolon)
-                        Consume(TokenType.Semicolon);
-
-                    continue;
+                    declarations.Add(ParseFunctionDecl());
+                    ConsumeOptionalSemicolon();
                 }
-
-                throw new Exception(
-                    $"Syntax Error: Unexpected token " +
-                    $"'{Current.Value}' in let declarations.");
+                else if (Current.Type == TokenType.Struct)
+                {
+                    declarations.Add(ParseStructDecl());
+                    ConsumeOptionalSemicolon();
+                }
+                else
+                {
+                    throw Error("expected declaration");
+                }
             }
 
             Consume(TokenType.In);
 
-            var body = new List<ExpNode>();
-
-            while (Current.Type != TokenType.End)
-            {
-                if (Current.Type == TokenType.EOF)
-                    throw new Exception(
-                        "Syntax Error: Expected 'end'.");
-
-                if (Current.Type == TokenType.Semicolon)
-                {
-                    Consume(TokenType.Semicolon);
-                    continue;
-                }
-
-                body.Add(ParseExp());
-
-                if (Current.Type == TokenType.Semicolon)
-                    Consume(TokenType.Semicolon);
-            }
-
+            var body = ParseBlockUntil(TokenType.End);
             Consume(TokenType.End);
 
-            return new LetExpNode(
-                declarations,
-                body);
+            return new LetExpNode(declarations, body);
+        }
+
+        private VarDeclNode ParseVarDecl()
+        {
+            Consume(TokenType.Var);
+
+            string name = Consume(TokenType.Identifier).Value;
+
+            string? typeName = null;
+
+            if (Current.Type == TokenType.Colon)
+            {
+                Consume(TokenType.Colon);
+                typeName = ParseTypeName();
+            }
+
+            Consume(TokenType.Assign);
+
+            ExpNode init = ParseExp();
+
+            return new VarDeclNode(name, init, typeName);
         }
 
         private FunctionDeclNode ParseFunctionDecl()
         {
             Consume(TokenType.Function);
 
-            string name =
-                Consume(TokenType.Identifier).Value;
+            string name = Consume(TokenType.Identifier).Value;
 
             Consume(TokenType.LParen);
 
@@ -186,13 +156,10 @@ namespace Tiger.NET
 
                     Consume(TokenType.Colon);
 
-                    string parameterType =
-                        Consume(TokenType.Identifier).Value;
+                    string parameterType = ParseTypeName();
 
                     parameters.Add(
-                        new FuncParam(
-                            parameterName,
-                            parameterType));
+                        new FuncParam(parameterName, parameterType));
 
                     if (Current.Type != TokenType.Comma)
                         break;
@@ -208,14 +175,21 @@ namespace Tiger.NET
             if (Current.Type == TokenType.Colon)
             {
                 Consume(TokenType.Colon);
-
-                returnType =
-                    Consume(TokenType.Identifier).Value;
+                returnType = ParseTypeName();
             }
 
             Consume(TokenType.Equal);
 
-            ExpNode body = ParseExp();
+            var body = new List<ExpNode>();
+
+            if (Current.Type == TokenType.Let)
+            {
+                body.Add(ParseLet());
+            }
+            else
+            {
+                body.Add(ParseExp());
+            }
 
             return new FunctionDeclNode(
                 name,
@@ -224,63 +198,88 @@ namespace Tiger.NET
                 body);
         }
 
+        private StructDeclNode ParseStructDecl()
+        {
+            Consume(TokenType.Struct);
+
+            string name =
+                Consume(TokenType.Identifier).Value;
+
+            Consume(TokenType.LBrace);
+
+            var fields = new List<StructField>();
+
+            while (Current.Type != TokenType.RBrace)
+            {
+                string fieldName =
+                    Consume(TokenType.Identifier).Value;
+
+                Consume(TokenType.Colon);
+
+                string fieldType = ParseTypeName();
+
+                fields.Add(
+                    new StructField(fieldName, fieldType));
+
+                if (Current.Type == TokenType.Comma ||
+                    Current.Type == TokenType.Semicolon)
+                {
+                    _idx++;
+                }
+                else if (Current.Type != TokenType.RBrace)
+                {
+                    throw Error("expected ',' or '}'");
+                }
+            }
+
+            Consume(TokenType.RBrace);
+
+            return new StructDeclNode(name, fields);
+        }
+
         private ExpNode ParseIf()
         {
             Consume(TokenType.If);
 
-            ExpNode condition = ParseExp();
+            ExpNode cond = ParseExp();
 
             Consume(TokenType.Then);
 
-            ExpNode thenExp = ParseExp();
+            var thenBody =
+                ParseBlockUntil(TokenType.Else, TokenType.End);
 
-            ExpNode? elseExp = null;
+            List<ExpNode>? elseBody = null;
 
             if (Current.Type == TokenType.Else)
             {
                 Consume(TokenType.Else);
-                elseExp = ParseExp();
+
+                elseBody =
+                    ParseBlockUntil(TokenType.End);
             }
 
+            Consume(TokenType.End);
+
             return new IfExpNode(
-                condition,
-                thenExp,
-                elseExp);
+                cond,
+                thenBody,
+                elseBody);
         }
 
         private ExpNode ParseWhile()
         {
             Consume(TokenType.While);
 
-            ExpNode condition = ParseExp();
+            ExpNode cond = ParseExp();
 
             Consume(TokenType.Do);
 
-            var body = new List<ExpNode>();
-
-            while (Current.Type != TokenType.End)
-            {
-                if (Current.Type == TokenType.EOF)
-                    throw new Exception(
-                        "Syntax Error: Expected 'end'.");
-
-                if (Current.Type == TokenType.Semicolon)
-                {
-                    Consume(TokenType.Semicolon);
-                    continue;
-                }
-
-                body.Add(ParseExp());
-
-                if (Current.Type == TokenType.Semicolon)
-                    Consume(TokenType.Semicolon);
-            }
+            var body =
+                ParseBlockUntil(TokenType.End);
 
             Consume(TokenType.End);
 
-            return new WhileExpNode(
-                condition,
-                body);
+            return new WhileExpNode(cond, body);
         }
 
         private ExpNode ParseFor()
@@ -300,25 +299,8 @@ namespace Tiger.NET
 
             Consume(TokenType.Do);
 
-            var body = new List<ExpNode>();
-
-            while (Current.Type != TokenType.End)
-            {
-                if (Current.Type == TokenType.EOF)
-                    throw new Exception(
-                        "Syntax Error: Expected 'end'.");
-
-                if (Current.Type == TokenType.Semicolon)
-                {
-                    Consume(TokenType.Semicolon);
-                    continue;
-                }
-
-                body.Add(ParseExp());
-
-                if (Current.Type == TokenType.Semicolon)
-                    Consume(TokenType.Semicolon);
-            }
+            var body =
+                ParseBlockUntil(TokenType.End);
 
             Consume(TokenType.End);
 
@@ -329,23 +311,41 @@ namespace Tiger.NET
                 body);
         }
 
-        private ExpNode ParseAssignOrBinary()
+        private List<ExpNode> ParseBlockUntil(params TokenType[] terminators)
         {
-            if (Current.Type == TokenType.Identifier &&
-                LookAheadType(1) == TokenType.Assign)
-            {
-                string name =
-                    Consume(TokenType.Identifier).Value;
+            var result = new List<ExpNode>();
 
+            while (Array.IndexOf(terminators, Current.Type) < 0)
+            {
+                if (Current.Type == TokenType.EOF)
+                    throw Error("unexpected end of file");
+
+                result.Add(ParseExp());
+
+                ConsumeOptionalSemicolon();
+            }
+
+            return result;
+        }
+
+        private ExpNode ParseAssignment()
+        {
+            ExpNode left = ParseBinaryExp();
+
+            if (Current.Type == TokenType.Assign)
+            {
                 Consume(TokenType.Assign);
 
                 ExpNode value = ParseExp();
 
-                return new AssignNode(
-                    name,
-                    value);
+                return new AssignNode(left, value);
             }
 
+            return left;
+        }
+
+        private ExpNode ParseBinaryExp()
+        {
             return ParseOr();
         }
 
@@ -356,14 +356,7 @@ namespace Tiger.NET
             while (Current.Type == TokenType.Or)
             {
                 Consume(TokenType.Or);
-
-                ExpNode right = ParseAnd();
-
-                left =
-                    new BinaryExpNode(
-                        "or",
-                        left,
-                        right);
+                left = new BinaryExpNode("or", left, ParseAnd());
             }
 
             return left;
@@ -376,14 +369,7 @@ namespace Tiger.NET
             while (Current.Type == TokenType.And)
             {
                 Consume(TokenType.And);
-
-                ExpNode right = ParseEquality();
-
-                left =
-                    new BinaryExpNode(
-                        "and",
-                        left,
-                        right);
+                left = new BinaryExpNode("and", left, ParseEquality());
             }
 
             return left;
@@ -399,13 +385,10 @@ namespace Tiger.NET
                 string op = Current.Value;
                 _idx++;
 
-                ExpNode right = ParseComparison();
-
-                left =
-                    new BinaryExpNode(
-                        op,
-                        left,
-                        right);
+                left = new BinaryExpNode(
+                    op,
+                    left,
+                    ParseComparison());
             }
 
             return left;
@@ -413,7 +396,7 @@ namespace Tiger.NET
 
         private ExpNode ParseComparison()
         {
-            ExpNode left = ParseAdditive();
+            ExpNode left = ParseTerm();
 
             while (Current.Type == TokenType.LessThan ||
                    Current.Type == TokenType.LessEqual ||
@@ -423,21 +406,18 @@ namespace Tiger.NET
                 string op = Current.Value;
                 _idx++;
 
-                ExpNode right = ParseAdditive();
-
-                left =
-                    new BinaryExpNode(
-                        op,
-                        left,
-                        right);
+                left = new BinaryExpNode(
+                    op,
+                    left,
+                    ParseTerm());
             }
 
             return left;
         }
 
-        private ExpNode ParseAdditive()
+        private ExpNode ParseTerm()
         {
-            ExpNode left = ParseMultiplicative();
+            ExpNode left = ParseFactor();
 
             while (Current.Type == TokenType.Plus ||
                    Current.Type == TokenType.Minus)
@@ -445,35 +425,30 @@ namespace Tiger.NET
                 string op = Current.Value;
                 _idx++;
 
-                ExpNode right = ParseMultiplicative();
-
-                left =
-                    new BinaryExpNode(
-                        op,
-                        left,
-                        right);
+                left = new BinaryExpNode(
+                    op,
+                    left,
+                    ParseFactor());
             }
 
             return left;
         }
 
-        private ExpNode ParseMultiplicative()
+        private ExpNode ParseFactor()
         {
             ExpNode left = ParseUnary();
 
             while (Current.Type == TokenType.Multiply ||
-                   Current.Type == TokenType.Divide)
+                   Current.Type == TokenType.Divide ||
+                   Current.Type == TokenType.Modulo)
             {
                 string op = Current.Value;
                 _idx++;
 
-                ExpNode right = ParseUnary();
-
-                left =
-                    new BinaryExpNode(
-                        op,
-                        left,
-                        right);
+                left = new BinaryExpNode(
+                    op,
+                    left,
+                    ParseUnary());
             }
 
             return left;
@@ -484,13 +459,53 @@ namespace Tiger.NET
             if (Current.Type == TokenType.Minus)
             {
                 Consume(TokenType.Minus);
-
-                return new UnaryExpNode(
-                    "-",
-                    ParseUnary());
+                return new UnaryExpNode("-", ParseUnary());
             }
 
-            return ParsePrimary();
+            return ParsePostfix();
+        }
+
+        private ExpNode ParsePostfix()
+        {
+            ExpNode expression = ParsePrimary();
+
+            while (true)
+            {
+                if (Current.Type == TokenType.LBracket)
+                {
+                    Consume(TokenType.LBracket);
+
+                    ExpNode index = ParseExp();
+
+                    Consume(TokenType.RBracket);
+
+                    expression =
+                        new ArrayAccessNode(
+                            expression,
+                            index);
+
+                    continue;
+                }
+
+                if (Current.Type == TokenType.Dot)
+                {
+                    Consume(TokenType.Dot);
+
+                    string field =
+                        Consume(TokenType.Identifier).Value;
+
+                    expression =
+                        new FieldAccessNode(
+                            expression,
+                            field);
+
+                    continue;
+                }
+
+                break;
+            }
+
+            return expression;
         }
 
         private ExpNode ParsePrimary()
@@ -500,7 +515,7 @@ namespace Tiger.NET
                 int value =
                     int.Parse(Current.Value);
 
-                _idx++;
+                Consume(TokenType.Int);
 
                 return new IntLiteralNode(value);
             }
@@ -509,7 +524,7 @@ namespace Tiger.NET
             {
                 string value = Current.Value;
 
-                _idx++;
+                Consume(TokenType.String);
 
                 return new StringLiteralNode(value);
             }
@@ -517,21 +532,19 @@ namespace Tiger.NET
             if (Current.Type == TokenType.True)
             {
                 Consume(TokenType.True);
-
                 return new BoolLiteralNode(true);
             }
 
             if (Current.Type == TokenType.False)
             {
                 Consume(TokenType.False);
-
                 return new BoolLiteralNode(false);
             }
 
             if (Current.Type == TokenType.Identifier)
             {
-                string name = Current.Value;
-                _idx++;
+                string name =
+                    Consume(TokenType.Identifier).Value;
 
                 if (Current.Type == TokenType.LParen)
                 {
@@ -552,12 +565,32 @@ namespace Tiger.NET
 
                     Consume(TokenType.RParen);
 
-                    return new CallExpNode(
-                        name,
-                        args);
+                    return new CallExpNode(name, args);
                 }
 
                 return new VarAccessNode(name);
+            }
+
+            if (Current.Type == TokenType.LBracket)
+            {
+                Consume(TokenType.LBracket);
+
+                var elements = new List<ExpNode>();
+
+                if (Current.Type != TokenType.RBracket)
+                {
+                    elements.Add(ParseExp());
+
+                    while (Current.Type == TokenType.Comma)
+                    {
+                        Consume(TokenType.Comma);
+                        elements.Add(ParseExp());
+                    }
+                }
+
+                Consume(TokenType.RBracket);
+
+                return new ArrayLiteralNode(elements);
             }
 
             if (Current.Type == TokenType.LParen)
@@ -571,19 +604,35 @@ namespace Tiger.NET
                 return expression;
             }
 
-            throw new Exception(
-                $"Syntax Error: Unexpected token " +
-                $"'{Current.Value}'.");
+            throw Error(
+                $"unexpected token '{Current.Value}'");
         }
 
-        private TokenType LookAheadType(int offset)
+        private string ParseTypeName()
         {
-            int index = _idx + offset;
+            string type =
+                Consume(TokenType.Identifier).Value;
 
-            if (index >= _tokens.Count)
-                return TokenType.EOF;
+            if (Current.Type == TokenType.LBracket)
+            {
+                Consume(TokenType.LBracket);
+                Consume(TokenType.RBracket);
+                type += "[]";
+            }
 
-            return _tokens[index].Type;
+            return type;
+        }
+
+        private void ConsumeOptionalSemicolon()
+        {
+            if (Current.Type == TokenType.Semicolon)
+                Consume(TokenType.Semicolon);
+        }
+
+        private Exception Error(string message)
+        {
+            return new Exception(
+                $"Syntax Error at {Current.Line}:{Current.Column}: {message}");
         }
     }
 }
