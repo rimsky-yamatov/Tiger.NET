@@ -17,7 +17,9 @@ namespace Tiger.NET
     public sealed class TigerType : IEquatable<TigerType>
     {
         public TigerTypeKind Kind { get; }
+
         public TigerType? ElementType { get; }
+
         public string? StructName { get; }
 
         private TigerType(
@@ -42,17 +44,26 @@ namespace Tiger.NET
         public static readonly TigerType Void =
             new TigerType(TigerTypeKind.Void);
 
-        public static TigerType Array(TigerType elementType)
+        public static TigerType Array(
+            TigerType elementType)
         {
             if (elementType == null)
-                throw new ArgumentNullException(nameof(elementType));
+                throw new ArgumentNullException(
+                    nameof(elementType));
 
             return new TigerType(
                 TigerTypeKind.Array,
                 elementType: elementType);
         }
 
-        public static TigerType Struct(string name)
+        public static TigerType ArrayOf(
+            TigerType elementType)
+        {
+            return Array(elementType);
+        }
+
+        public static TigerType Struct(
+            string name)
         {
             if (string.IsNullOrWhiteSpace(name))
                 throw new ArgumentException(
@@ -64,7 +75,14 @@ namespace Tiger.NET
                 structName: name);
         }
 
-        public bool Equals(TigerType? other)
+        public bool IsArray =>
+            Kind == TigerTypeKind.Array;
+
+        public string Name =>
+            StructName ?? "";
+
+        public bool Equals(
+            TigerType? other)
         {
             if (other == null)
                 return false;
@@ -75,7 +93,8 @@ namespace Tiger.NET
             return Kind switch
             {
                 TigerTypeKind.Array =>
-                    ElementType!.Equals(other.ElementType),
+                    ElementType!.Equals(
+                        other.ElementType),
 
                 TigerTypeKind.Struct =>
                     string.Equals(
@@ -87,9 +106,11 @@ namespace Tiger.NET
             };
         }
 
-        public override bool Equals(object? obj)
+        public override bool Equals(
+            object? obj)
         {
-            return obj is TigerType other && Equals(other);
+            return obj is TigerType other &&
+                   Equals(other);
         }
 
         public override int GetHashCode()
@@ -104,10 +125,17 @@ namespace Tiger.NET
         {
             return Kind switch
             {
-                TigerTypeKind.Int => "int",
-                TigerTypeKind.String => "string",
-                TigerTypeKind.Bool => "bool",
-                TigerTypeKind.Void => "void",
+                TigerTypeKind.Int =>
+                    "int",
+
+                TigerTypeKind.String =>
+                    "string",
+
+                TigerTypeKind.Bool =>
+                    "bool",
+
+                TigerTypeKind.Void =>
+                    "void",
 
                 TigerTypeKind.Array =>
                     $"{ElementType}[]",
@@ -115,7 +143,8 @@ namespace Tiger.NET
                 TigerTypeKind.Struct =>
                     StructName ?? "struct",
 
-                _ => "unknown"
+                _ =>
+                    "unknown"
             };
         }
     }
@@ -123,7 +152,9 @@ namespace Tiger.NET
     public sealed class TigerFunction
     {
         public string Name { get; }
+
         public IReadOnlyList<TigerType> Parameters { get; }
+
         public TigerType ReturnType { get; }
 
         public TigerFunction(
@@ -138,11 +169,15 @@ namespace Tiger.NET
 
             Name = name;
 
-            Parameters = parameters?.ToList()
-                ?? throw new ArgumentNullException(nameof(parameters));
+            Parameters =
+                parameters?.ToList()
+                ?? throw new ArgumentNullException(
+                    nameof(parameters));
 
-            ReturnType = returnType
-                ?? throw new ArgumentNullException(nameof(returnType));
+            ReturnType =
+                returnType
+                ?? throw new ArgumentNullException(
+                    nameof(returnType));
         }
     }
 
@@ -163,19 +198,26 @@ namespace Tiger.NET
 
             Name = name;
 
-            Fields = new Dictionary<string, TigerType>(
-                fields ?? throw new ArgumentNullException(nameof(fields)),
-                StringComparer.Ordinal);
+            Fields =
+                new Dictionary<string, TigerType>(
+                    fields
+                    ?? throw new ArgumentNullException(
+                        nameof(fields)),
+                    StringComparer.Ordinal);
         }
 
-        public bool HasField(string name)
+        public bool HasField(
+            string name)
         {
             return Fields.ContainsKey(name);
         }
 
-        public TigerType GetField(string name)
+        public TigerType GetField(
+            string name)
         {
-            if (!Fields.TryGetValue(name, out var type))
+            if (!Fields.TryGetValue(
+                    name,
+                    out var type))
             {
                 throw new Exception(
                     $"Unknown field '{name}' in struct '{Name}'.");
@@ -185,61 +227,57 @@ namespace Tiger.NET
         }
     }
 
+    public sealed class Scope
+    {
+        public Dictionary<string, TigerType> Variables { get; } =
+            new(StringComparer.Ordinal);
+
+        public Dictionary<string, TigerFunction> Functions { get; } =
+            new(StringComparer.Ordinal);
+
+        public Dictionary<string, TigerStruct> Structs { get; } =
+            new(StringComparer.Ordinal);
+    }
+
     public sealed class ScopeStack
     {
-        private readonly Stack<
-            Dictionary<string, TigerType>
-        > _variableScopes = new();
-
-        private readonly Stack<
-            Dictionary<string, TigerFunction>
-        > _functionScopes = new();
-
-        private readonly Stack<
-            Dictionary<string, TigerStruct>
-        > _structScopes = new();
+        private readonly Stack<Scope> _scopes =
+            new();
 
         public ScopeStack()
         {
             Push();
         }
 
+        public Scope Current =>
+            _scopes.Peek();
+
         public int Depth =>
-            _variableScopes.Count;
+            _scopes.Count;
 
         public void Push()
         {
-            _variableScopes.Push(
-                new Dictionary<string, TigerType>(
-                    StringComparer.Ordinal));
-
-            _functionScopes.Push(
-                new Dictionary<string, TigerFunction>(
-                    StringComparer.Ordinal));
-
-            _structScopes.Push(
-                new Dictionary<string, TigerStruct>(
-                    StringComparer.Ordinal));
+            _scopes.Push(
+                new Scope());
         }
 
         public void Pop()
         {
-            if (_variableScopes.Count <= 1)
+            if (_scopes.Count <= 1)
             {
                 throw new InvalidOperationException(
                     "Cannot pop the global scope.");
             }
 
-            _variableScopes.Pop();
-            _functionScopes.Pop();
-            _structScopes.Pop();
+            _scopes.Pop();
         }
 
         public void DeclareVariable(
             string name,
             TigerType type)
         {
-            var scope = _variableScopes.Peek();
+            var scope =
+                Current.Variables;
 
             if (scope.ContainsKey(name))
             {
@@ -251,40 +289,64 @@ namespace Tiger.NET
         }
 
         public void DeclareFunction(
+            string name,
             TigerFunction function)
         {
-            var scope = _functionScopes.Peek();
+            var scope =
+                Current.Functions;
 
-            if (scope.ContainsKey(function.Name))
+            if (scope.ContainsKey(name))
             {
                 throw new Exception(
-                    $"Function '{function.Name}' is already declared in this scope.");
+                    $"Function '{name}' is already declared in this scope.");
             }
 
-            scope[function.Name] = function;
+            scope[name] = function;
+        }
+
+        public void DeclareFunction(
+            TigerFunction function)
+        {
+            DeclareFunction(
+                function.Name,
+                function);
+        }
+
+        public void DeclareStruct(
+            string name,
+            TigerStruct structure)
+        {
+            var scope =
+                Current.Structs;
+
+            if (scope.ContainsKey(name))
+            {
+                throw new Exception(
+                    $"Struct '{name}' is already declared in this scope.");
+            }
+
+            scope[name] = structure;
         }
 
         public void DeclareStruct(
             TigerStruct structure)
         {
-            var scope = _structScopes.Peek();
-
-            if (scope.ContainsKey(structure.Name))
-            {
-                throw new Exception(
-                    $"Struct '{structure.Name}' is already declared in this scope.");
-            }
-
-            scope[structure.Name] = structure;
+            DeclareStruct(
+                structure.Name,
+                structure);
         }
 
         public TigerType? LookupVariable(
             string name)
         {
-            foreach (var scope in _variableScopes)
+            foreach (var scope in _scopes)
             {
-                if (scope.TryGetValue(name, out var type))
+                if (scope.Variables.TryGetValue(
+                        name,
+                        out var type))
+                {
                     return type;
+                }
             }
 
             return null;
@@ -293,10 +355,14 @@ namespace Tiger.NET
         public TigerFunction? LookupFunction(
             string name)
         {
-            foreach (var scope in _functionScopes)
+            foreach (var scope in _scopes)
             {
-                if (scope.TryGetValue(name, out var function))
+                if (scope.Functions.TryGetValue(
+                        name,
+                        out var function))
+                {
                     return function;
+                }
             }
 
             return null;
@@ -305,10 +371,14 @@ namespace Tiger.NET
         public TigerStruct? LookupStruct(
             string name)
         {
-            foreach (var scope in _structScopes)
+            foreach (var scope in _scopes)
             {
-                if (scope.TryGetValue(name, out var structure))
+                if (scope.Structs.TryGetValue(
+                        name,
+                        out var structure))
+                {
                     return structure;
+                }
             }
 
             return null;
