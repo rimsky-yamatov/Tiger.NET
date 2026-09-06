@@ -3,555 +3,823 @@ using System.Collections.Generic;
 
 namespace Tiger.NET
 {
-    public sealed class TypeChecker
+    public class Scope
     {
-        private readonly Dictionary<string, TigerType> _variables = new();
-        private readonly Dictionary<string, FunctionType> _functions = new();
-        private int _loopDepth;
+        public Dictionary<string, TigerType> Variables { get; } = new();
+        public Dictionary<string, TigerFunction> Functions { get; } = new();
+        public Dictionary<string, TigerStruct> Structs { get; } = new();
+    }
 
-        public void Check(ExpNode root)
+    public class ScopeStack
+    {
+        private readonly Stack<Scope> _scopes = new();
+
+        public ScopeStack()
         {
-            RegisterFunctions(root);
-            CheckNode(root);
+            Push();
         }
 
-        private void RegisterFunctions(ExpNode node)
+        public void Push()
         {
-            if (node is not LetExpNode let)
-                return;
+            _scopes.Push(new Scope());
+        }
 
-            foreach (var dec in let.Decs)
+        public void Pop()
+        {
+            if (_scopes.Count <= 1)
+                throw new InvalidOperationException("cannot pop global scope");
+
+            _scopes.Pop();
+        }
+
+        public void DeclareVariable(string name, TigerType type)
+        {
+            Current.Variables[name] = type;
+        }
+
+        public void DeclareFunction(
+            string name,
+            TigerFunction function)
+        {
+            Current.Functions[name] = function;
+        }
+
+        public void DeclareStruct(
+            string name,
+            TigerStruct structure)
+        {
+            Current.Structs[name] = structure;
+        }
+
+        public TigerType? LookupVariable(string name)
+        {
+            foreach (var scope in _scopes)
             {
-                if (dec is not FunctionDeclNode fn)
-                    continue;
+                if (scope.Variables.TryGetValue(name, out var type))
+                    return type;
+            }
 
-                if (_functions.ContainsKey(fn.Name))
-                    throw new TypeCheckException(
-                        $"Function '{fn.Name}' is already defined.");
+            return null;
+        }
 
-                var parameters = new TigerType[fn.Params.Count];
+        public TigerFunction? LookupFunction(string name)
+        {
+            foreach (var scope in _scopes)
+            {
+                if (scope.Functions.TryGetValue(name, out var function))
+                    return function;
+            }
 
-                for (int i = 0; i < fn.Params.Count; i++)
-                {
-                    parameters[i] = TigerType.Parse(fn.Params[i].TypeName);
-                }
+            return null;
+        }
 
-                var returnType = TigerType.Parse(fn.ReturnType);
+        public TigerStruct? LookupStruct(string name)
+        {
+            foreach (var scope in _scopes)
+            {
+                if (scope.Structs.TryGetValue(name, out var structure))
+                    return structure;
+            }
 
-                _functions.Add(
-                    fn.Name,
-                    new FunctionType(
-                        fn.Name,
-                        returnType,
-                        parameters));
+            return null;
+        }
+
+        public Scope Current => _scopes.Peek();
+    }
+
+    public class TypeChecker
+    {
+        private readonly ScopeStack _scopes = new();
+        private int _loopDepth;
+
+        public void Check(ExpNode ast)
+        {
+            InstallStandardLibrary();
+
+            if (ast is LetExpNode root)
+                CheckLet(root);
+            else
+                CheckExpression(ast);
+        }
+
+        private void InstallStandardLibrary()
+        {
+            foreach (var function in StandardLibrary.Functions)
+            {
+                _scopes.DeclareFunction(
+                    function.Name,
+                    function);
             }
         }
 
-        private TigerType CheckNode(ExpNode node)
+        private TigerType CheckExpression(ExpNode node)
         {
+            TigerType type;
+
             switch (node)
             {
                 case IntLiteralNode:
-                    return SetType(node, TigerType.Int);
+                    type = TigerType.Int;
+                    break;
 
                 case StringLiteralNode:
-                    return SetType(node, TigerType.String);
+                    type = TigerType.String;
+                    break;
 
                 case BoolLiteralNode:
-                    return SetType(node, TigerType.Bool);
+                    type = TigerType.Bool;
+                    break;
 
                 case VarAccessNode variable:
-                    return SetType(node, GetVariable(variable.Name));
+                    type = RequireVariable(variable.Name);
+                    break;
 
                 case VarDeclNode declaration:
-                    return CheckVariableDeclaration(declaration);
+                    type = CheckVarDecl(declaration);
+                    break;
 
                 case AssignNode assignment:
-                    return CheckAssignment(assignment);
-
-                case UnaryExpNode unary:
-                    return CheckUnary(unary);
+                    type = CheckAssignment(assignment);
+                    break;
 
                 case BinaryExpNode binary:
-                    return CheckBinary(binary);
+                    type = CheckBinary(binary);
+                    break;
+
+                case UnaryExpNode unary:
+                    type = CheckUnary(unary);
+                    break;
 
                 case CallExpNode call:
-                    return CheckCall(call);
+                    type = CheckCall(call);
+                    break;
+
+                case LetExpNode let:
+                    type = CheckLet(let);
+                    break;
+
+                case BlockNode block:
+                    type = CheckBlock(block.Expressions);
+                    break;
 
                 case IfExpNode conditional:
-                    return CheckIf(conditional);
+                    type = CheckIf(conditional);
+                    break;
 
-                case WhileExpNode loop:
-                    return CheckWhile(loop);
+                case WhileExpNode whileNode:
+                    type = CheckWhile(whileNode);
+                    break;
 
-                case ForExpNode loop:
-                    return CheckFor(loop);
+                case ForExpNode forNode:
+                    type = CheckFor(forNode);
+                    break;
 
                 case BreakExpNode:
                     if (_loopDepth == 0)
-                        throw new TypeCheckException(
-                            "'break' can only be used inside a loop.");
+                        throw Error("break is only valid inside a loop");
 
-                    return SetType(node, TigerType.Void);
+                    type = TigerType.Void;
+                    break;
 
-                case LetExpNode let:
-                    return CheckLet(let);
+                case ContinueExpNode:
+                    if (_loopDepth == 0)
+                        throw Error("continue is only valid inside a loop");
+
+                    type = TigerType.Void;
+                    break;
+
+                case ArrayLiteralNode array:
+                    type = CheckArrayLiteral(array);
+                    break;
+
+                case ArrayAccessNode access:
+                    type = CheckArrayAccess(access);
+                    break;
+
+                case FieldAccessNode field:
+                    type = CheckFieldAccess(field);
+                    break;
+
+                case StructInitNode init:
+                    type = CheckStructInit(init);
+                    break;
 
                 case FunctionDeclNode:
-                    return SetType(node, TigerType.Void);
+                case StructDeclNode:
+                    type = TigerType.Void;
+                    break;
 
                 default:
-                    throw new TypeCheckException(
-                        $"Unsupported AST node '{node.GetType().Name}'.");
+                    throw Error(
+                        $"unsupported AST node {node.GetType().Name}");
             }
+
+            node.InferredType = type;
+            return type;
         }
 
-        private TigerType CheckVariableDeclaration(VarDeclNode node)
+        private TigerType CheckVarDecl(VarDeclNode declaration)
         {
-            if (_variables.ContainsKey(node.Name))
-                throw new TypeCheckException(
-                    $"Variable '{node.Name}' is already defined.");
+            TigerType actual =
+                CheckExpression(declaration.Init);
 
-            var initType = CheckNode(node.Init);
+            TigerType finalType = actual;
 
-            TigerType finalType;
-
-            if (node.DeclaredType != null)
+            if (!string.IsNullOrEmpty(declaration.TypeName))
             {
-                finalType = TigerType.Parse(node.DeclaredType);
+                finalType =
+                    ResolveType(declaration.TypeName);
 
                 RequireSameType(
                     finalType,
-                    initType,
-                    $"Variable '{node.Name}' initializer");
-            }
-            else
-            {
-                finalType = initType;
+                    actual,
+                    $"variable '{declaration.Name}'");
             }
 
-            _variables[node.Name] = finalType;
+            if (_scopes.Current.Variables.ContainsKey(declaration.Name))
+                throw Error(
+                    $"variable '{declaration.Name}' is already declared in this scope");
 
-            return SetType(node, TigerType.Void);
+            _scopes.DeclareVariable(
+                declaration.Name,
+                finalType);
+
+            return TigerType.Void;
         }
 
-        private TigerType CheckAssignment(AssignNode node)
+        private TigerType CheckAssignment(
+            AssignNode assignment)
         {
-            var variableType = GetVariable(node.VarName);
-            var valueType = CheckNode(node.Value);
+            TigerType target =
+                CheckAssignableTarget(assignment.Target);
+
+            TigerType value =
+                CheckExpression(assignment.Value);
 
             RequireSameType(
-                variableType,
-                valueType,
-                $"Assignment to '{node.VarName}'");
+                target,
+                value,
+                "assignment");
 
-            return SetType(node, TigerType.Void);
+            return TigerType.Void;
         }
 
-        private TigerType CheckUnary(UnaryExpNode node)
+        private TigerType CheckAssignableTarget(ExpNode target)
         {
-            var operandType = CheckNode(node.Operand);
-
-            if (node.Op == "-")
+            switch (target)
             {
-                RequireType(TigerType.Int, operandType, "Unary '-'");
-                return SetType(node, TigerType.Int);
-            }
+                case VarAccessNode variable:
+                    return RequireVariable(variable.Name);
 
-            throw new TypeCheckException(
-                $"Unknown unary operator '{node.Op}'.");
+                case ArrayAccessNode array:
+                    return CheckArrayAccess(array);
+
+                case FieldAccessNode field:
+                    return CheckFieldAccess(field);
+
+                default:
+                    throw Error(
+                        "left side of assignment is not assignable");
+            }
         }
 
-        private TigerType CheckBinary(BinaryExpNode node)
+        private TigerType CheckBinary(
+            BinaryExpNode binary)
         {
-            var left = CheckNode(node.Left);
-            var right = CheckNode(node.Right);
+            TigerType left =
+                CheckExpression(binary.Left);
 
-            switch (node.Op)
+            TigerType right =
+                CheckExpression(binary.Right);
+
+            switch (binary.Op)
             {
                 case "+":
                 case "-":
                 case "*":
                 case "/":
-                    RequireType(TigerType.Int, left, $"Left operand of '{node.Op}'");
-                    RequireType(TigerType.Int, right, $"Right operand of '{node.Op}'");
-                    return SetType(node, TigerType.Int);
+                case "%":
+                    RequireSameType(
+                        TigerType.Int,
+                        left,
+                        $"left operand of '{binary.Op}'");
 
-                case "=":
-                case "<>":
-                    RequireSameType(left, right, $"Operator '{node.Op}'");
-                    return SetType(node, TigerType.Bool);
+                    RequireSameType(
+                        TigerType.Int,
+                        right,
+                        $"right operand of '{binary.Op}'");
+
+                    return TigerType.Int;
 
                 case "<":
                 case "<=":
                 case ">":
                 case ">=":
-                    RequireType(TigerType.Int, left, $"Left operand of '{node.Op}'");
-                    RequireType(TigerType.Int, right, $"Right operand of '{node.Op}'");
-                    return SetType(node, TigerType.Bool);
+                    RequireSameType(
+                        TigerType.Int,
+                        left,
+                        $"left operand of '{binary.Op}'");
+
+                    RequireSameType(
+                        TigerType.Int,
+                        right,
+                        $"right operand of '{binary.Op}'");
+
+                    return TigerType.Bool;
+
+                case "=":
+                case "<>":
+                    RequireSameType(
+                        left,
+                        right,
+                        $"operands of '{binary.Op}'");
+
+                    return TigerType.Bool;
 
                 case "and":
                 case "or":
-                    RequireType(TigerType.Bool, left, $"Left operand of '{node.Op}'");
-                    RequireType(TigerType.Bool, right, $"Right operand of '{node.Op}'");
-                    return SetType(node, TigerType.Bool);
+                    RequireSameType(
+                        TigerType.Bool,
+                        left,
+                        $"left operand of '{binary.Op}'");
+
+                    RequireSameType(
+                        TigerType.Bool,
+                        right,
+                        $"right operand of '{binary.Op}'");
+
+                    return TigerType.Bool;
 
                 default:
-                    throw new TypeCheckException(
-                        $"Unknown binary operator '{node.Op}'.");
+                    throw Error(
+                        $"unknown binary operator '{binary.Op}'");
             }
         }
 
-        private TigerType CheckCall(CallExpNode node)
+        private TigerType CheckUnary(
+            UnaryExpNode unary)
         {
-            var function = GetFunction(node.FuncName);
+            TigerType operand =
+                CheckExpression(unary.Operand);
 
-            if (node.Args.Count != function.ParameterTypes.Length)
+            if (unary.Op == "-")
             {
-                throw new TypeCheckException(
-                    $"Function '{node.FuncName}' expects " +
-                    $"{function.ParameterTypes.Length} arguments, " +
-                    $"but got {node.Args.Count}.");
+                RequireSameType(
+                    TigerType.Int,
+                    operand,
+                    "unary '-'");
+
+                return TigerType.Int;
             }
 
-            for (int i = 0; i < node.Args.Count; i++)
+            throw Error(
+                $"unknown unary operator '{unary.Op}'");
+        }
+
+        private TigerType CheckCall(
+            CallExpNode call)
+        {
+            TigerFunction? function =
+                _scopes.LookupFunction(call.FuncName);
+
+            if (function == null)
             {
-                var actual = CheckNode(node.Args[i]);
-                var expected = function.ParameterTypes[i];
+                TigerStruct? structure =
+                    _scopes.LookupStruct(call.FuncName);
+
+                if (structure != null)
+                {
+                    var init =
+                        new StructInitNode(
+                            call.FuncName,
+                            call.Args);
+
+                    return CheckStructInit(init);
+                }
+
+                throw Error(
+                    $"unknown function '{call.FuncName}'");
+            }
+
+            if (call.Args.Count != function.Parameters.Count)
+            {
+                throw Error(
+                    $"function '{call.FuncName}' expects {function.Parameters.Count} arguments but got {call.Args.Count}");
+            }
+
+            for (int i = 0; i < call.Args.Count; i++)
+            {
+                TigerType actual =
+                    CheckExpression(call.Args[i]);
 
                 RequireSameType(
-                    expected,
+                    function.Parameters[i],
                     actual,
-                    $"Argument {i + 1} of '{node.FuncName}'");
+                    $"argument {i + 1} of '{call.FuncName}'");
             }
 
-            return SetType(node, function.ReturnType);
+            return function.ReturnType;
         }
 
-        private TigerType CheckIf(IfExpNode node)
+        private TigerType CheckLet(
+            LetExpNode let)
         {
-            var condition = CheckNode(node.Cond);
+            _scopes.Push();
 
-            RequireType(
-                TigerType.Bool,
-                condition,
-                "If condition");
-
-            var thenType = CheckNode(node.Then);
-
-            if (node.Else == null)
+            foreach (var declaration in let.Decs)
             {
-                return SetType(node, TigerType.Void);
+                if (declaration is StructDeclNode structure)
+                {
+                    DeclareStruct(structure);
+                }
             }
 
-            var elseType = CheckNode(node.Else);
+            foreach (var declaration in let.Decs)
+            {
+                if (declaration is FunctionDeclNode function)
+                {
+                    DeclareFunction(function);
+                }
+            }
+
+            foreach (var declaration in let.Decs)
+            {
+                if (declaration is VarDeclNode variable)
+                    CheckVarDecl(variable);
+            }
+
+            foreach (var declaration in let.Decs)
+            {
+                if (declaration is FunctionDeclNode function)
+                    CheckFunctionBody(function);
+            }
+
+            TigerType result =
+                CheckBlock(let.Body);
+
+            _scopes.Pop();
+
+            return result;
+        }
+
+        private TigerType CheckBlock(
+            List<ExpNode> expressions)
+        {
+            if (expressions.Count == 0)
+                return TigerType.Void;
+
+            TigerType result = TigerType.Void;
+
+            foreach (var expression in expressions)
+                result = CheckExpression(expression);
+
+            return result;
+        }
+
+        private TigerType CheckIf(
+            IfExpNode conditional)
+        {
+            TigerType condition =
+                CheckExpression(conditional.Cond);
+
+            RequireSameType(
+                TigerType.Bool,
+                condition,
+                "if condition");
+
+            _scopes.Push();
+
+            TigerType thenType =
+                CheckBlock(conditional.Then);
+
+            _scopes.Pop();
+
+            if (conditional.Else == null)
+                return TigerType.Void;
+
+            _scopes.Push();
+
+            TigerType elseType =
+                CheckBlock(conditional.Else);
+
+            _scopes.Pop();
 
             RequireSameType(
                 thenType,
                 elseType,
-                "If branches");
+                "if branches");
 
-            return SetType(node, thenType);
+            return thenType;
         }
 
-        private TigerType CheckWhile(WhileExpNode node)
+        private TigerType CheckWhile(
+            WhileExpNode whileNode)
         {
-            var condition = CheckNode(node.Cond);
+            TigerType condition =
+                CheckExpression(whileNode.Cond);
 
-            RequireType(
+            RequireSameType(
                 TigerType.Bool,
                 condition,
-                "While condition");
+                "while condition");
 
             _loopDepth++;
 
-            try
-            {
-                foreach (var body in node.Body)
-                    CheckNode(body);
-            }
-            finally
-            {
-                _loopDepth--;
-            }
+            _scopes.Push();
+            CheckBlock(whileNode.Body);
+            _scopes.Pop();
 
-            return SetType(node, TigerType.Void);
+            _loopDepth--;
+
+            return TigerType.Void;
         }
 
-        private TigerType CheckFor(ForExpNode node)
+        private TigerType CheckFor(
+            ForExpNode forNode)
         {
-            var startType = CheckNode(node.EscapeStart);
-            var endType = CheckNode(node.EscapeEnd);
+            TigerType start =
+                CheckExpression(forNode.EscapeStart);
 
-            RequireType(
+            TigerType end =
+                CheckExpression(forNode.EscapeEnd);
+
+            RequireSameType(
                 TigerType.Int,
-                startType,
-                "For start");
+                start,
+                "for start");
 
-            RequireType(
+            RequireSameType(
                 TigerType.Int,
-                endType,
-                "For end");
-
-            if (_variables.ContainsKey(node.VarName))
-                throw new TypeCheckException(
-                    $"For variable '{node.VarName}' conflicts with an existing variable.");
-
-            _variables[node.VarName] = TigerType.Int;
+                end,
+                "for end");
 
             _loopDepth++;
 
-            try
-            {
-                foreach (var body in node.Body)
-                    CheckNode(body);
-            }
-            finally
-            {
-                _loopDepth--;
-                _variables.Remove(node.VarName);
-            }
+            _scopes.Push();
 
-            return SetType(node, TigerType.Void);
+            _scopes.DeclareVariable(
+                forNode.VarName,
+                TigerType.Int);
+
+            CheckBlock(forNode.Body);
+
+            _scopes.Pop();
+
+            _loopDepth--;
+
+            return TigerType.Void;
         }
 
-        private TigerType CheckLet(LetExpNode node)
+        private TigerType CheckArrayLiteral(
+            ArrayLiteralNode array)
         {
-            var oldVariables =
-                new Dictionary<string, TigerType>(_variables);
+            if (array.Elements.Count == 0)
+                throw Error(
+                    "cannot infer type of empty array");
 
-            try
+            TigerType elementType =
+                CheckExpression(array.Elements[0]);
+
+            for (int i = 1; i < array.Elements.Count; i++)
             {
-                foreach (var dec in node.Decs)
-                {
-                    if (dec is VarDeclNode variable)
-                        CheckVariableDeclaration(variable);
-                }
-
-                foreach (var dec in node.Decs)
-                {
-                    if (dec is FunctionDeclNode function)
-                        CheckFunction(function);
-                }
-
-                TigerType result = TigerType.Void;
-
-                foreach (var body in node.Body)
-                    result = CheckNode(body);
-
-                return SetType(node, result);
-            }
-            finally
-            {
-                _variables.Clear();
-
-                foreach (var pair in oldVariables)
-                    _variables.Add(pair.Key, pair.Value);
-            }
-        }
-
-        private void CheckFunction(FunctionDeclNode node)
-        {
-            var function = GetFunction(node.Name);
-
-            var oldVariables =
-                new Dictionary<string, TigerType>(_variables);
-
-            try
-            {
-                _variables.Clear();
-
-                foreach (var pair in oldVariables)
-                    _variables.Add(pair.Key, pair.Value);
-
-                for (int i = 0; i < node.Params.Count; i++)
-                {
-                    var parameter = node.Params[i];
-
-                    if (_variables.ContainsKey(parameter.Name))
-                    {
-                        throw new TypeCheckException(
-                            $"Parameter '{parameter.Name}' is already defined.");
-                    }
-
-                    _variables[parameter.Name] =
-                        function.ParameterTypes[i];
-                }
-
-                var bodyType = CheckNode(node.Body);
+                TigerType type =
+                    CheckExpression(array.Elements[i]);
 
                 RequireSameType(
-                    function.ReturnType,
-                    bodyType,
-                    $"Return value of function '{node.Name}'");
+                    elementType,
+                    type,
+                    $"array element {i + 1}");
             }
-            finally
-            {
-                _variables.Clear();
 
-                foreach (var pair in oldVariables)
-                    _variables.Add(pair.Key, pair.Value);
-            }
+            return TigerType.ArrayOf(elementType);
         }
 
-        private TigerType GetVariable(string name)
+        private TigerType CheckArrayAccess(
+            ArrayAccessNode access)
         {
-            if (!_variables.TryGetValue(name, out var type))
+            TigerType array =
+                CheckExpression(access.Array);
+
+            TigerType index =
+                CheckExpression(access.Index);
+
+            RequireSameType(
+                TigerType.Int,
+                index,
+                "array index");
+
+            if (!array.IsArray ||
+                array.ElementType == null)
             {
-                throw new TypeCheckException(
-                    $"Undefined variable '{name}'.");
+                throw Error(
+                    "array access requires an array");
             }
 
-            return type;
+            return array.ElementType;
         }
 
-        private FunctionType GetFunction(string name)
+        private TigerType CheckFieldAccess(
+            FieldAccessNode field)
         {
-            if (!_functions.TryGetValue(name, out var function))
-            {
-                if (name == "print" ||
-                    name == "printline" ||
-                    name == "printint" ||
-                    name == "flush" ||
-                    name == "getchar" ||
-                    name == "ord" ||
-                    name == "chr" ||
-                    name == "size" ||
-                    name == "substring" ||
-                    name == "concat" ||
-                    name == "not" ||
-                    name == "exit")
-                {
-                    return GetBuiltin(name);
-                }
+            TigerType target =
+                CheckExpression(field.Target);
 
-                throw new TypeCheckException(
-                    $"Undefined function '{name}'.");
+            TigerStruct? structure =
+                _scopes.LookupStruct(target.Name);
+
+            if (structure == null)
+            {
+                throw Error(
+                    $"type '{target}' is not a struct");
             }
 
-            return function;
+            if (!structure.Fields.TryGetValue(
+                    field.FieldName,
+                    out var fieldType))
+            {
+                throw Error(
+                    $"struct '{structure.Name}' has no field '{field.FieldName}'");
+            }
+
+            return fieldType;
         }
 
-        private static FunctionType GetBuiltin(string name)
+        private TigerType CheckStructInit(
+            StructInitNode init)
         {
+            TigerStruct? structure =
+                _scopes.LookupStruct(init.StructName);
+
+            if (structure == null)
+                throw Error(
+                    $"unknown struct '{init.StructName}'");
+
+            if (init.Args.Count != structure.Fields.Count)
+                throw Error(
+                    $"struct '{init.StructName}' expects {structure.Fields.Count} fields but got {init.Args.Count}");
+
+            int index = 0;
+
+            foreach (var field in structure.Fields)
+            {
+                TigerType actual =
+                    CheckExpression(init.Args[index]);
+
+                RequireSameType(
+                    field.Value,
+                    actual,
+                    $"field '{field.Key}'");
+
+                index++;
+            }
+
+            return new TigerType(structure.Name);
+        }
+
+        private void DeclareStruct(
+            StructDeclNode declaration)
+        {
+            if (_scopes.LookupStruct(declaration.Name) != null)
+                throw Error(
+                    $"struct '{declaration.Name}' is already declared");
+
+            var fields =
+                new Dictionary<string, TigerType>();
+
+            foreach (var field in declaration.Fields)
+            {
+                if (fields.ContainsKey(field.Name))
+                    throw Error(
+                        $"duplicate field '{field.Name}'");
+
+                fields[field.Name] =
+                    ResolveType(field.TypeName);
+            }
+
+            _scopes.DeclareStruct(
+                declaration.Name,
+                new TigerStruct(
+                    declaration.Name,
+                    fields));
+        }
+
+        private void DeclareFunction(
+            FunctionDeclNode declaration)
+        {
+            if (_scopes.LookupFunction(declaration.Name) != null)
+                throw Error(
+                    $"function '{declaration.Name}' is already declared");
+
+            var parameters =
+                new List<TigerType>();
+
+            foreach (var parameter in declaration.Params)
+            {
+                parameters.Add(
+                    ResolveType(parameter.TypeName));
+            }
+
+            TigerType returnType =
+                ResolveType(declaration.ReturnType);
+
+            _scopes.DeclareFunction(
+                declaration.Name,
+                new TigerFunction(
+                    declaration.Name,
+                    parameters,
+                    returnType));
+        }
+
+        private void CheckFunctionBody(
+            FunctionDeclNode function)
+        {
+            TigerFunction? signature =
+                _scopes.LookupFunction(function.Name);
+
+            if (signature == null)
+                throw Error(
+                    $"function '{function.Name}' was not registered");
+
+            _scopes.Push();
+
+            for (int i = 0; i < function.Params.Count; i++)
+            {
+                _scopes.DeclareVariable(
+                    function.Params[i].Name,
+                    signature.Parameters[i]);
+            }
+
+            TigerType actual =
+                CheckBlock(function.Body);
+
+            RequireSameType(
+                signature.ReturnType,
+                actual,
+                $"return type of function '{function.Name}'");
+
+            _scopes.Pop();
+        }
+
+        private TigerType ResolveType(string name)
+        {
+            if (name.EndsWith("[]"))
+            {
+                string elementName =
+                    name[..^2];
+
+                return TigerType.ArrayOf(
+                    ResolveType(elementName));
+            }
+
             return name switch
             {
-                "print" =>
-                    new FunctionType(
-                        name,
-                        TigerType.Void,
-                        new[] { TigerType.String }),
-
-                "printline" =>
-                    new FunctionType(
-                        name,
-                        TigerType.Void,
-                        new[] { TigerType.String }),
-
-                "printint" =>
-                    new FunctionType(
-                        name,
-                        TigerType.Void,
-                        new[] { TigerType.Int }),
-
-                "flush" =>
-                    new FunctionType(
-                        name,
-                        TigerType.Void,
-                        Array.Empty<TigerType>()),
-
-                "getchar" =>
-                    new FunctionType(
-                        name,
-                        TigerType.String,
-                        Array.Empty<TigerType>()),
-
-                "ord" =>
-                    new FunctionType(
-                        name,
-                        TigerType.Int,
-                        new[] { TigerType.String }),
-
-                "chr" =>
-                    new FunctionType(
-                        name,
-                        TigerType.String,
-                        new[] { TigerType.Int }),
-
-                "size" =>
-                    new FunctionType(
-                        name,
-                        TigerType.Int,
-                        new[] { TigerType.String }),
-
-                "substring" =>
-                    new FunctionType(
-                        name,
-                        TigerType.String,
-                        new[]
-                        {
-                            TigerType.String,
-                            TigerType.Int,
-                            TigerType.Int
-                        }),
-
-                "concat" =>
-                    new FunctionType(
-                        name,
-                        TigerType.String,
-                        new[]
-                        {
-                            TigerType.String,
-                            TigerType.String
-                        }),
-
-                "not" =>
-                    new FunctionType(
-                        name,
-                        TigerType.Int,
-                        new[] { TigerType.Int }),
-
-                "exit" =>
-                    new FunctionType(
-                        name,
-                        TigerType.Void,
-                        new[] { TigerType.Int }),
-
-                _ => throw new TypeCheckException(
-                    $"Unknown builtin function '{name}'.")
+                "int" => TigerType.Int,
+                "string" => TigerType.String,
+                "bool" => TigerType.Bool,
+                "void" => TigerType.Void,
+                _ => ResolveStructType(name)
             };
         }
 
-        private static void RequireType(
-            TigerType expected,
-            TigerType actual,
-            string context)
+        private TigerType ResolveStructType(
+            string name)
         {
-            if (!expected.Equals(actual))
-            {
-                throw new TypeCheckException(
-                    $"{context}: expected '{expected}', got '{actual}'.");
-            }
+            if (_scopes.LookupStruct(name) == null)
+                throw Error(
+                    $"unknown type '{name}'");
+
+            return new TigerType(name);
         }
 
-        private static void RequireSameType(
-            TigerType expected,
-            TigerType actual,
-            string context)
+        private TigerType RequireVariable(
+            string name)
         {
-            if (!expected.Equals(actual))
-            {
-                throw new TypeCheckException(
-                    $"{context}: type mismatch, expected '{expected}', got '{actual}'.");
-            }
-        }
+            TigerType? type =
+                _scopes.LookupVariable(name);
 
-        private static TigerType SetType(
-            ExpNode node,
-            TigerType type)
-        {
-            node.InferredType = type;
+            if (type == null)
+                throw Error(
+                    $"unknown variable '{name}'");
+
             return type;
+        }
+
+        private void RequireSameType(
+            TigerType expected,
+            TigerType actual,
+            string context)
+        {
+            if (!expected.Equals(actual))
+            {
+                throw Error(
+                    $"type mismatch in {context}: expected {expected}, got {actual}");
+            }
+        }
+
+        private Exception Error(string message)
+        {
+            return new Exception(
+                $"Type Error: {message}");
         }
     }
 }
