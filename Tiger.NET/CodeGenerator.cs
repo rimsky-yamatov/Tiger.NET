@@ -611,7 +611,7 @@ namespace Tiger.NET
                     break;
 
                 case AssignNode a:
-                    sb.Append(a.VarName);
+                    sb.Append(a.Name);
                     sb.Append(" = ");
                     EmitExpression(
                         a.Value,
