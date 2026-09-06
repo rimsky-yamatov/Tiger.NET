@@ -547,33 +547,41 @@ namespace Tiger.NET
             string limit =
                 $"__limit_{Sanitize(node.VarName)}";
 
-            sb.Append(
-                $"{indent}for (int {node.VarName} = Convert.ToInt32(");
-
-            EmitExpression(
-                node.EscapeStart,
-                sb);
+            sb.AppendLine(
+                $"{indent}{{");
 
             sb.Append(
-                $"), int {limit} = Convert.ToInt32(");
+                $"{indent}    int {limit} = Convert.ToInt32(");
 
             EmitExpression(
                 node.EscapeEnd,
+                sb);
+
+            sb.AppendLine(");");
+
+            sb.Append(
+                $"{indent}    for (int {node.VarName} = Convert.ToInt32(");
+
+            EmitExpression(
+                node.EscapeStart,
                 sb);
 
             sb.AppendLine(
                 $"); {node.VarName} <= {limit}; {node.VarName}++)");
 
             sb.AppendLine(
-                $"{indent}{{");
+                $"{indent}    {{");
 
             foreach (var body in node.Body)
             {
                 EmitStatement(
                     body,
                     sb,
-                    indent + "    ");
+                    indent + "        ");
             }
+
+            sb.AppendLine(
+                $"{indent}    }}");
 
             sb.AppendLine(
                 $"{indent}}}");
