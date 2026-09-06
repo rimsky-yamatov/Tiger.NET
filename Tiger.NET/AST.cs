@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace Tiger.NET
 {
@@ -8,31 +7,34 @@ namespace Tiger.NET
         public TigerType? InferredType { get; set; }
     }
 
-    public class StringLiteralNode : ExpNode
+    public sealed class StringLiteralNode : ExpNode
     {
-        public string Value { get; set; }
+        public string Value { get; }
         public StringLiteralNode(string value) => Value = value;
     }
 
-    public class IntLiteralNode : ExpNode
+    public sealed class IntLiteralNode : ExpNode
     {
-        public int Value { get; set; }
+        public int Value { get; }
         public IntLiteralNode(int value) => Value = value;
     }
 
-    public class BoolLiteralNode : ExpNode
+    public sealed class BoolLiteralNode : ExpNode
     {
-        public bool Value { get; set; }
+        public bool Value { get; }
         public BoolLiteralNode(bool value) => Value = value;
     }
 
-    public class VarDeclNode : ExpNode
+    public sealed class VarDeclNode : ExpNode
     {
-        public string Name { get; set; }
-        public string? TypeName { get; set; }
-        public ExpNode Init { get; set; }
+        public string Name { get; }
+        public string? TypeName { get; }
+        public ExpNode Init { get; }
 
-        public VarDeclNode(string name, ExpNode init, string? typeName = null)
+        public VarDeclNode(
+            string name,
+            ExpNode init,
+            string? typeName = null)
         {
             Name = name;
             Init = init;
@@ -40,30 +42,32 @@ namespace Tiger.NET
         }
     }
 
-    public class FuncParam
+    public sealed class FuncParam
     {
-        public string Name { get; set; }
-        public string TypeName { get; set; }
+        public string Name { get; }
+        public string TypeName { get; }
 
-        public FuncParam(string name, string typeName)
+        public FuncParam(
+            string name,
+            string typeName)
         {
             Name = name;
             TypeName = typeName;
         }
     }
 
-    public class FunctionDeclNode : ExpNode
+    public sealed class FunctionDeclNode : ExpNode
     {
-        public string Name { get; set; }
-        public List<FuncParam> Params { get; set; }
-        public string ReturnType { get; set; }
-        public List<ExpNode> Body { get; set; }
+        public string Name { get; }
+        public List<FuncParam> Params { get; }
+        public string ReturnType { get; }
+        public ExpNode Body { get; }
 
         public FunctionDeclNode(
             string name,
             List<FuncParam> parameters,
             string returnType,
-            List<ExpNode> body)
+            ExpNode body)
         {
             Name = name;
             Params = parameters;
@@ -72,83 +76,173 @@ namespace Tiger.NET
         }
     }
 
-    public class StructDeclNode : ExpNode
+    public sealed class StructDeclNode : ExpNode
     {
-        public string Name { get; set; }
-        public List<StructField> Fields { get; set; }
+        public string Name { get; }
+        public List<StructField> Fields { get; }
 
-        public StructDeclNode(string name, List<StructField> fields)
+        public StructDeclNode(
+            string name,
+            List<StructField> fields)
         {
             Name = name;
             Fields = fields;
         }
     }
 
-    public class StructField
+    public sealed class StructField
     {
-        public string Name { get; set; }
-        public string TypeName { get; set; }
+        public string Name { get; }
+        public string TypeName { get; }
 
-        public StructField(string name, string typeName)
+        public StructField(
+            string name,
+            string typeName)
         {
             Name = name;
             TypeName = typeName;
         }
     }
 
-    public class AssignNode : ExpNode
+    public sealed class StructInitNode : ExpNode
     {
-        public ExpNode Target { get; set; }
-        public ExpNode Value { get; set; }
+        public string TypeName { get; }
+        public List<ExpNode> Args { get; }
 
-        public AssignNode(ExpNode target, ExpNode value)
+        public StructInitNode(
+            string typeName,
+            List<ExpNode> args)
+        {
+            TypeName = typeName;
+            Args = args;
+        }
+    }
+
+    public sealed class FieldAccessNode : ExpNode
+    {
+        public ExpNode Target { get; }
+        public string FieldName { get; }
+
+        public FieldAccessNode(
+            ExpNode target,
+            string fieldName)
         {
             Target = target;
+            FieldName = fieldName;
+        }
+    }
+
+    public sealed class ArrayLiteralNode : ExpNode
+    {
+        public List<ExpNode> Elements { get; }
+
+        public ArrayLiteralNode(
+            List<ExpNode> elements)
+        {
+            Elements = elements;
+        }
+    }
+
+    public sealed class ArrayAccessNode : ExpNode
+    {
+        public ExpNode Array { get; }
+        public ExpNode Index { get; }
+
+        public ArrayAccessNode(
+            ExpNode array,
+            ExpNode index)
+        {
+            Array = array;
+            Index = index;
+        }
+    }
+
+    public sealed class AssignNode : ExpNode
+    {
+        public string Name { get; }
+        public ExpNode Value { get; }
+
+        public AssignNode(
+            string name,
+            ExpNode value)
+        {
+            Name = name;
             Value = value;
         }
     }
 
-    public class CallExpNode : ExpNode
+    public sealed class ArrayAssignNode : ExpNode
     {
-        public string FuncName { get; set; }
-        public List<ExpNode> Args { get; set; }
+        public ExpNode Array { get; }
+        public ExpNode Index { get; }
+        public ExpNode Value { get; }
 
-        public CallExpNode(string funcName, List<ExpNode> args)
+        public ArrayAssignNode(
+            ExpNode array,
+            ExpNode index,
+            ExpNode value)
+        {
+            Array = array;
+            Index = index;
+            Value = value;
+        }
+    }
+
+    public sealed class FieldAssignNode : ExpNode
+    {
+        public ExpNode Target { get; }
+        public string FieldName { get; }
+        public ExpNode Value { get; }
+
+        public FieldAssignNode(
+            ExpNode target,
+            string fieldName,
+            ExpNode value)
+        {
+            Target = target;
+            FieldName = fieldName;
+            Value = value;
+        }
+    }
+
+    public sealed class CallExpNode : ExpNode
+    {
+        public string FuncName { get; }
+        public List<ExpNode> Args { get; }
+
+        public CallExpNode(
+            string funcName,
+            List<ExpNode> args)
         {
             FuncName = funcName;
             Args = args;
         }
     }
 
-    public class LetExpNode : ExpNode
+    public sealed class LetExpNode : ExpNode
     {
-        public List<ExpNode> Decs { get; set; }
-        public List<ExpNode> Body { get; set; }
+        public List<ExpNode> Decs { get; }
+        public List<ExpNode> Body { get; }
 
-        public LetExpNode(List<ExpNode> decs, List<ExpNode> body)
+        public LetExpNode(
+            List<ExpNode> decs,
+            List<ExpNode> body)
         {
             Decs = decs;
             Body = body;
         }
     }
 
-    public class BlockNode : ExpNode
+    public sealed class BinaryExpNode : ExpNode
     {
-        public List<ExpNode> Expressions { get; set; }
+        public string Op { get; }
+        public ExpNode Left { get; }
+        public ExpNode Right { get; }
 
-        public BlockNode(List<ExpNode> expressions)
-        {
-            Expressions = expressions;
-        }
-    }
-
-    public class BinaryExpNode : ExpNode
-    {
-        public string Op { get; set; }
-        public ExpNode Left { get; set; }
-        public ExpNode Right { get; set; }
-
-        public BinaryExpNode(string op, ExpNode left, ExpNode right)
+        public BinaryExpNode(
+            string op,
+            ExpNode left,
+            ExpNode right)
         {
             Op = op;
             Left = left;
@@ -156,23 +250,28 @@ namespace Tiger.NET
         }
     }
 
-    public class UnaryExpNode : ExpNode
+    public sealed class UnaryExpNode : ExpNode
     {
-        public string Op { get; set; }
-        public ExpNode Operand { get; set; }
+        public string Op { get; }
+        public ExpNode Operand { get; }
 
-        public UnaryExpNode(string op, ExpNode operand)
+        public UnaryExpNode(
+            string op,
+            ExpNode operand)
         {
             Op = op;
             Operand = operand;
         }
     }
 
-    public class IfExpNode : ExpNode
+    public sealed class IfExpNode : ExpNode
     {
-        public ExpNode Cond { get; set; }
-        public List<ExpNode> Then { get; set; }
-        public List<ExpNode>? Else { get; set; }
+        public ExpNode Cond { get; }
+        public List<ExpNode> ThenBody { get; }
+        public List<ExpNode> ElseBody { get; }
+
+        public bool HasElse =>
+            ElseBody.Count > 0;
 
         public IfExpNode(
             ExpNode cond,
@@ -180,29 +279,33 @@ namespace Tiger.NET
             List<ExpNode>? elseBody = null)
         {
             Cond = cond;
-            Then = thenBody;
-            Else = elseBody;
+            ThenBody = thenBody;
+            ElseBody =
+                elseBody ??
+                new List<ExpNode>();
         }
     }
 
-    public class WhileExpNode : ExpNode
+    public sealed class WhileExpNode : ExpNode
     {
-        public ExpNode Cond { get; set; }
-        public List<ExpNode> Body { get; set; }
+        public ExpNode Cond { get; }
+        public List<ExpNode> Body { get; }
 
-        public WhileExpNode(ExpNode cond, List<ExpNode> body)
+        public WhileExpNode(
+            ExpNode cond,
+            List<ExpNode> body)
         {
             Cond = cond;
             Body = body;
         }
     }
 
-    public class ForExpNode : ExpNode
+    public sealed class ForExpNode : ExpNode
     {
-        public string VarName { get; set; }
-        public ExpNode EscapeStart { get; set; }
-        public ExpNode EscapeEnd { get; set; }
-        public List<ExpNode> Body { get; set; }
+        public string VarName { get; }
+        public ExpNode EscapeStart { get; }
+        public ExpNode EscapeEnd { get; }
+        public List<ExpNode> Body { get; }
 
         public ForExpNode(
             string varName,
@@ -217,150 +320,33 @@ namespace Tiger.NET
         }
     }
 
-    public class BreakExpNode : ExpNode
+    public sealed class BreakExpNode : ExpNode
     {
     }
 
-    public class ContinueExpNode : ExpNode
+    public sealed class ContinueExpNode : ExpNode
     {
     }
 
-    public class VarAccessNode : ExpNode
-    {
-        public string Name { get; set; }
-
-        public VarAccessNode(string name)
-        {
-            Name = name;
-        }
-    }
-
-    public class ArrayLiteralNode : ExpNode
-    {
-        public List<ExpNode> Elements { get; set; }
-
-        public ArrayLiteralNode(List<ExpNode> elements)
-        {
-            Elements = elements;
-        }
-    }
-
-    public class ArrayAccessNode : ExpNode
-    {
-        public ExpNode Array { get; set; }
-        public ExpNode Index { get; set; }
-
-        public ArrayAccessNode(ExpNode array, ExpNode index)
-        {
-            Array = array;
-            Index = index;
-        }
-    }
-
-    public class FieldAccessNode : ExpNode
-    {
-        public ExpNode Target { get; set; }
-        public string FieldName { get; set; }
-
-        public FieldAccessNode(ExpNode target, string fieldName)
-        {
-            Target = target;
-            FieldName = fieldName;
-        }
-    }
-
-    public class StructInitNode : ExpNode
-    {
-        public string StructName { get; set; }
-        public List<ExpNode> Args { get; set; }
-
-        public StructInitNode(string structName, List<ExpNode> args)
-        {
-            StructName = structName;
-            Args = args;
-        }
-    }
-
-    public class TigerType
+    public sealed class VarAccessNode : ExpNode
     {
         public string Name { get; }
-        public TigerType? ElementType { get; }
 
-        public TigerType(string name, TigerType? elementType = null)
+        public VarAccessNode(
+            string name)
         {
             Name = name;
-            ElementType = elementType;
-        }
-
-        public bool IsArray => Name == "array";
-
-        public override string ToString()
-        {
-            return IsArray && ElementType != null
-                ? ElementType + "[]"
-                : Name;
-        }
-
-        public override bool Equals(object? obj)
-        {
-            if (obj is not TigerType other)
-                return false;
-
-            if (IsArray != other.IsArray)
-                return false;
-
-            if (IsArray)
-                return ElementType != null &&
-                       other.ElementType != null &&
-                       ElementType.Equals(other.ElementType);
-
-            return Name == other.Name;
-        }
-
-        public override int GetHashCode()
-        {
-            return HashCode.Combine(Name, ElementType);
-        }
-
-        public static readonly TigerType Int = new("int");
-        public static readonly TigerType String = new("string");
-        public static readonly TigerType Bool = new("bool");
-        public static readonly TigerType Void = new("void");
-
-        public static TigerType ArrayOf(TigerType type)
-        {
-            return new TigerType("array", type);
         }
     }
 
-    public class TigerFunction
+    public sealed class SequenceExpNode : ExpNode
     {
-        public string Name { get; }
-        public List<TigerType> Parameters { get; }
-        public TigerType ReturnType { get; }
+        public List<ExpNode> Expressions { get; }
 
-        public TigerFunction(
-            string name,
-            List<TigerType> parameters,
-            TigerType returnType)
+        public SequenceExpNode(
+            List<ExpNode> expressions)
         {
-            Name = name;
-            Parameters = parameters;
-            ReturnType = returnType;
-        }
-    }
-
-    public class TigerStruct
-    {
-        public string Name { get; }
-        public Dictionary<string, TigerType> Fields { get; }
-
-        public TigerStruct(
-            string name,
-            Dictionary<string, TigerType> fields)
-        {
-            Name = name;
-            Fields = fields;
+            Expressions = expressions;
         }
     }
 }
