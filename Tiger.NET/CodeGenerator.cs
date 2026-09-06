@@ -1,606 +1,1023 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Collections.Generic;
+using Microsoft.CodeAnalysis.CSharp;
+using Basic.Reference.Assemblies;
 
 namespace Tiger.NET
 {
-    public class CodeGenerator
+    public static class CodeGenerator
     {
-        private readonly StringBuilder _sb = new();
-        private int _tempCounter;
-
         public static string EmitCSharp(ExpNode ast)
         {
-            var generator = new CodeGenerator();
-            return generator.Generate(ast);
-        }
+            var sb = new StringBuilder();
 
-        private string Generate(ExpNode ast)
-        {
-            _sb.AppendLine("using System;");
-            _sb.AppendLine("using System.Collections.Generic;");
-            _sb.AppendLine("namespace Tiger.NET.Runtime");
-            _sb.AppendLine("{");
+            sb.AppendLine("using System;");
+            sb.AppendLine("namespace Tiger.NET.Runtime");
+            sb.AppendLine("{");
+            sb.AppendLine("    public static class ExecutableProgram");
+            sb.AppendLine("    {");
 
             if (ast is LetExpNode rootLet)
             {
-                foreach (var declaration in rootLet.Decs)
+                foreach (var dec in rootLet.Decs)
                 {
-                    if (declaration is StructDeclNode structure)
-                        EmitStruct(structure);
+                    if (dec is StructDeclNode st)
+                        EmitStruct(st, sb, "        ");
                 }
 
-                foreach (var declaration in rootLet.Decs)
+                foreach (var dec in rootLet.Decs)
                 {
-                    if (declaration is FunctionDeclNode function)
-                        EmitFunction(function);
+                    if (dec is FunctionDeclNode fn)
+                        EmitFunction(fn, sb, "        ");
                 }
             }
 
-            _sb.AppendLine("public static class ExecutableProgram");
-            _sb.AppendLine("{");
-            _sb.AppendLine("public static void Main(string[] args)");
-            _sb.AppendLine("{");
+            sb.AppendLine("        public static void Main(string[] args)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            TigerStdLib.Init();");
 
-            if (ast is LetExpNode root)
-            {
-                foreach (var declaration in root.Decs)
-                {
-                    if (declaration is VarDeclNode variable)
-                        EmitStatement(variable);
+            EmitMainNode(ast, sb, "            ");
 
-                    if (declaration is FunctionDeclNode)
-                    {
-                    }
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine();
 
-                    if (declaration is StructDeclNode)
-                    {
-                    }
-                }
+            EmitStdLib(sb);
 
-                foreach (var expression in root.Body)
-                    EmitStatement(expression);
-            }
-            else
-            {
-                EmitStatement(ast);
-            }
+            sb.AppendLine("}");
 
-            _sb.AppendLine("}");
-            _sb.AppendLine("}");
-
-            EmitRuntime();
-
-            _sb.AppendLine("}");
-
-            return _sb.ToString();
+            return sb.ToString();
         }
 
-        private void EmitStruct(StructDeclNode structure)
+        private static void EmitStruct(
+            StructDeclNode st,
+            StringBuilder sb,
+            string indent)
         {
-            _sb.AppendLine(
-                $"public struct {SafeName(structure.Name)}");
-            _sb.AppendLine("{");
+            sb.AppendLine($"{indent}public struct {st.Name}");
+            sb.AppendLine($"{indent}{{");
 
-            foreach (var field in structure.Fields)
+            foreach (var field in st.Fields)
             {
-                _sb.AppendLine(
-                    $"public {MapType(field.TypeName)} {SafeName(field.Name)};");
+                sb.AppendLine(
+                    $"{indent}    public dynamic {field.Name};");
             }
 
-            _sb.AppendLine("}");
+            sb.AppendLine();
+
+            sb.AppendLine(
+                $"{indent}    public {st.Name}(" +
+                string.Join(
+                    ", ",
+                    st.Fields.ConvertAll(
+                        f => $"dynamic {f.Name}")) +
+                ")");
+
+            sb.AppendLine($"{indent}    {{");
+
+            foreach (var field in st.Fields)
+            {
+                sb.AppendLine(
+                    $"{indent}        this.{field.Name} = {field.Name};");
+            }
+
+            sb.AppendLine($"{indent}    }}");
+            sb.AppendLine($"{indent}}}");
+            sb.AppendLine();
         }
 
-        private void EmitFunction(FunctionDeclNode function)
+        private static void EmitFunction(
+            FunctionDeclNode fn,
+            StringBuilder sb,
+            string indent)
         {
-            _sb.Append(
-                $"public static {MapType(function.ReturnType)} {SafeName(function.Name)}(");
+            sb.Append(
+                $"{indent}public static dynamic {fn.Name}(");
 
-            for (int i = 0; i < function.Params.Count; i++)
+            for (int i = 0; i < fn.Params.Count; i++)
             {
                 if (i > 0)
-                    _sb.Append(", ");
+                    sb.Append(", ");
 
-                _sb.Append(
-                    $"{MapType(function.Params[i].TypeName)} {SafeName(function.Params[i].Name)}");
+                sb.Append($"dynamic {fn.Params[i].Name}");
             }
 
-            _sb.AppendLine(")");
-            _sb.AppendLine("{");
+            sb.AppendLine(")");
+            sb.AppendLine($"{indent}{{");
 
-            if (function.Body.Count == 0)
-            {
-                if (function.ReturnType == "void")
-                    _sb.AppendLine("return;");
-                else
-                    _sb.AppendLine($"return {DefaultValue(function.ReturnType)};");
-            }
-            else
-            {
-                for (int i = 0; i < function.Body.Count - 1; i++)
-                    EmitStatement(function.Body[i]);
+            EmitFunctionBody(
+                fn.Body,
+                sb,
+                indent + "    ");
 
-                ExpNode last = function.Body[^1];
-
-                if (function.ReturnType == "void")
-                {
-                    EmitStatement(last);
-                }
-                else
-                {
-                    _sb.Append("return ");
-                    EmitExpression(last);
-                    _sb.AppendLine(";");
-                }
-            }
-
-            _sb.AppendLine("}");
+            sb.AppendLine($"{indent}}}");
+            sb.AppendLine();
         }
 
-        private void EmitStatement(ExpNode node)
+        private static void EmitFunctionBody(
+            ExpNode node,
+            StringBuilder sb,
+            string indent)
         {
-            switch (node)
+            if (node is LetExpNode let)
             {
-                case VarDeclNode variable:
-                    _sb.Append(
-                        $"{MapType(variable.TypeName ?? variable.Init.InferredType?.ToString() ?? "int")} {SafeName(variable.Name)} = ");
-                    EmitExpression(variable.Init);
-                    _sb.AppendLine(";");
-                    break;
-
-                case AssignNode assignment:
-                    EmitExpression(assignment.Target);
-                    _sb.Append(" = ");
-                    EmitExpression(assignment.Value);
-                    _sb.AppendLine(";");
-                    break;
-
-                case IfExpNode conditional:
-                    EmitIf(conditional);
-                    break;
-
-                case WhileExpNode whileNode:
-                    EmitWhile(whileNode);
-                    break;
-
-                case ForExpNode forNode:
-                    EmitFor(forNode);
-                    break;
-
-                case BreakExpNode:
-                    _sb.AppendLine("break;");
-                    break;
-
-                case ContinueExpNode:
-                    _sb.AppendLine("continue;");
-                    break;
-
-                case LetExpNode let:
-                    foreach (var declaration in let.Decs)
+                foreach (var dec in let.Decs)
+                {
+                    if (dec is VarDeclNode v)
                     {
-                        if (declaration is VarDeclNode variable)
-                            EmitStatement(variable);
+                        sb.Append(
+                            $"{indent}dynamic {v.Name} = ");
+
+                        EmitExpression(v.Init, sb);
+
+                        sb.AppendLine(";");
+                    }
+                }
+
+                if (let.Body.Count == 0)
+                {
+                    sb.AppendLine(
+                        $"{indent}return null;");
+                    return;
+                }
+
+                for (int i = 0; i < let.Body.Count - 1; i++)
+                {
+                    EmitStatement(
+                        let.Body[i],
+                        sb,
+                        indent);
+                }
+
+                EmitReturn(
+                    let.Body[^1],
+                    sb,
+                    indent);
+
+                return;
+            }
+
+            if (node is IfExpNode ifNode)
+            {
+                sb.Append(
+                    $"{indent}if (TigerStdLib.IsTruthy(");
+
+                EmitExpression(
+                    ifNode.Cond,
+                    sb);
+
+                sb.AppendLine("))");
+                sb.AppendLine($"{indent}{{");
+
+                EmitReturnBlock(
+                    ifNode.ThenBody,
+                    sb,
+                    indent + "    ");
+
+                sb.AppendLine($"{indent}}}");
+
+                if (ifNode.HasElse)
+                {
+                    sb.AppendLine($"{indent}else");
+                    sb.AppendLine($"{indent}{{");
+
+                    EmitReturnBlock(
+                        ifNode.ElseBody,
+                        sb,
+                        indent + "    ");
+
+                    sb.AppendLine($"{indent}}}");
+                }
+                else
+                {
+                    sb.AppendLine(
+                        $"{indent}return null;");
+                }
+
+                return;
+            }
+
+            if (node is WhileExpNode whileNode)
+            {
+                EmitWhile(
+                    whileNode,
+                    sb,
+                    indent);
+
+                sb.AppendLine(
+                    $"{indent}return null;");
+
+                return;
+            }
+
+            if (node is ForExpNode forNode)
+            {
+                EmitFor(
+                    forNode,
+                    sb,
+                    indent);
+
+                sb.AppendLine(
+                    $"{indent}return null;");
+
+                return;
+            }
+
+            if (node is BreakExpNode)
+            {
+                sb.AppendLine(
+                    $"{indent}break;");
+
+                sb.AppendLine(
+                    $"{indent}return null;");
+
+                return;
+            }
+
+            if (node is ContinueExpNode)
+            {
+                sb.AppendLine(
+                    $"{indent}continue;");
+
+                sb.AppendLine(
+                    $"{indent}return null;");
+
+                return;
+            }
+
+            EmitReturn(
+                node,
+                sb,
+                indent);
+        }
+
+        private static void EmitReturnBlock(
+            List<ExpNode> body,
+            StringBuilder sb,
+            string indent)
+        {
+            if (body.Count == 0)
+            {
+                sb.AppendLine(
+                    $"{indent}return null;");
+
+                return;
+            }
+
+            for (int i = 0; i < body.Count - 1; i++)
+            {
+                EmitStatement(
+                    body[i],
+                    sb,
+                    indent);
+            }
+
+            EmitReturn(
+                body[^1],
+                sb,
+                indent);
+        }
+
+        private static void EmitReturn(
+            ExpNode node,
+            StringBuilder sb,
+            string indent)
+        {
+            if (node is IfExpNode ifNode)
+            {
+                EmitFunctionBody(
+                    ifNode,
+                    sb,
+                    indent);
+
+                return;
+            }
+
+            if (node is LetExpNode letNode)
+            {
+                EmitFunctionBody(
+                    letNode,
+                    sb,
+                    indent);
+
+                return;
+            }
+
+            if (node is WhileExpNode whileNode)
+            {
+                EmitWhile(
+                    whileNode,
+                    sb,
+                    indent);
+
+                sb.AppendLine(
+                    $"{indent}return null;");
+
+                return;
+            }
+
+            if (node is ForExpNode forNode)
+            {
+                EmitFor(
+                    forNode,
+                    sb,
+                    indent);
+
+                sb.AppendLine(
+                    $"{indent}return null;");
+
+                return;
+            }
+
+            sb.Append(
+                $"{indent}return ");
+
+            EmitExpression(
+                node,
+                sb);
+
+            sb.AppendLine(";");
+        }
+
+        private static void EmitMainNode(
+            ExpNode node,
+            StringBuilder sb,
+            string indent)
+        {
+            if (node is LetExpNode let)
+            {
+                foreach (var dec in let.Decs)
+                {
+                    if (dec is VarDeclNode v)
+                    {
+                        sb.Append(
+                            $"{indent}dynamic {v.Name} = ");
+
+                        EmitExpression(
+                            v.Init,
+                            sb);
+
+                        sb.AppendLine(";");
+                    }
+                }
+
+                foreach (var body in let.Body)
+                {
+                    EmitStatement(
+                        body,
+                        sb,
+                        indent);
+                }
+
+                return;
+            }
+
+            EmitStatement(
+                node,
+                sb,
+                indent);
+        }
+
+        private static void EmitStatement(
+            ExpNode node,
+            StringBuilder sb,
+            string indent)
+        {
+            if (node is LetExpNode let)
+            {
+                sb.AppendLine(
+                    $"{indent}{{");
+
+                foreach (var dec in let.Decs)
+                {
+                    if (dec is VarDeclNode v)
+                    {
+                        sb.Append(
+                            $"{indent}    dynamic {v.Name} = ");
+
+                        EmitExpression(
+                            v.Init,
+                            sb);
+
+                        sb.AppendLine(";");
+                    }
+                }
+
+                foreach (var body in let.Body)
+                {
+                    EmitStatement(
+                        body,
+                        sb,
+                        indent + "    ");
+                }
+
+                sb.AppendLine(
+                    $"{indent}}}");
+
+                return;
+            }
+
+            if (node is IfExpNode ifNode)
+            {
+                sb.Append(
+                    $"{indent}if (TigerStdLib.IsTruthy(");
+
+                EmitExpression(
+                    ifNode.Cond,
+                    sb);
+
+                sb.AppendLine("))");
+                sb.AppendLine($"{indent}{{");
+
+                foreach (var body in ifNode.ThenBody)
+                {
+                    EmitStatement(
+                        body,
+                        sb,
+                        indent + "    ");
+                }
+
+                sb.AppendLine($"{indent}}}");
+
+                if (ifNode.HasElse)
+                {
+                    sb.AppendLine($"{indent}else");
+                    sb.AppendLine($"{indent}{{");
+
+                    foreach (var body in ifNode.ElseBody)
+                    {
+                        EmitStatement(
+                            body,
+                            sb,
+                            indent + "    ");
                     }
 
-                    foreach (var expression in let.Body)
-                        EmitStatement(expression);
-                    break;
+                    sb.AppendLine($"{indent}}}");
+                }
 
-                case FunctionDeclNode:
-                case StructDeclNode:
-                    break;
-
-                case BlockNode block:
-                    foreach (var expression in block.Expressions)
-                        EmitStatement(expression);
-                    break;
-
-                default:
-                    EmitExpression(node);
-                    _sb.AppendLine(";");
-                    break;
+                return;
             }
-        }
 
-        private void EmitIf(IfExpNode node)
-        {
-            _sb.Append("if (");
-            EmitExpression(node.Cond);
-            _sb.AppendLine(")");
-            _sb.AppendLine("{");
-
-            foreach (var expression in node.Then)
-                EmitStatement(expression);
-
-            _sb.AppendLine("}");
-
-            if (node.Else != null)
+            if (node is WhileExpNode whileNode)
             {
-                _sb.AppendLine("else");
-                _sb.AppendLine("{");
+                EmitWhile(
+                    whileNode,
+                    sb,
+                    indent);
 
-                foreach (var expression in node.Else)
-                    EmitStatement(expression);
-
-                _sb.AppendLine("}");
+                return;
             }
+
+            if (node is ForExpNode forNode)
+            {
+                EmitFor(
+                    forNode,
+                    sb,
+                    indent);
+
+                return;
+            }
+
+            if (node is BreakExpNode)
+            {
+                sb.AppendLine(
+                    $"{indent}break;");
+
+                return;
+            }
+
+            if (node is ContinueExpNode)
+            {
+                sb.AppendLine(
+                    $"{indent}continue;");
+
+                return;
+            }
+
+            if (node is FunctionDeclNode)
+                return;
+
+            if (node is StructDeclNode)
+                return;
+
+            sb.Append(
+                indent);
+
+            EmitExpression(
+                node,
+                sb);
+
+            sb.AppendLine(";");
         }
 
-        private void EmitWhile(WhileExpNode node)
+        private static void EmitWhile(
+            WhileExpNode node,
+            StringBuilder sb,
+            string indent)
         {
-            _sb.Append("while (");
-            EmitExpression(node.Cond);
-            _sb.AppendLine(")");
-            _sb.AppendLine("{");
+            sb.Append(
+                $"{indent}while (TigerStdLib.IsTruthy(");
 
-            foreach (var expression in node.Body)
-                EmitStatement(expression);
+            EmitExpression(
+                node.Cond,
+                sb);
 
-            _sb.AppendLine("}");
+            sb.AppendLine("))");
+            sb.AppendLine($"{indent}{{");
+
+            foreach (var body in node.Body)
+            {
+                EmitStatement(
+                    body,
+                    sb,
+                    indent + "    ");
+            }
+
+            sb.AppendLine(
+                $"{indent}}}");
         }
 
-        private void EmitFor(ForExpNode node)
+        private static void EmitFor(
+            ForExpNode node,
+            StringBuilder sb,
+            string indent)
         {
-            string variable = SafeName(node.VarName);
-            string limit = $"__limit_{_tempCounter++}";
+            string limit =
+                $"__limit_{Sanitize(node.VarName)}";
 
-            _sb.Append(
-                $"for (int {variable} = ");
+            sb.Append(
+                $"{indent}for (int {node.VarName} = Convert.ToInt32(");
 
-            EmitExpression(node.EscapeStart);
+            EmitExpression(
+                node.EscapeStart,
+                sb);
 
-            _sb.Append(
-                $", {limit} = ");
+            sb.Append(
+                $"), int {limit} = Convert.ToInt32(");
 
-            EmitExpression(node.EscapeEnd);
+            EmitExpression(
+                node.EscapeEnd,
+                sb);
 
-            _sb.AppendLine(
-                $"; {variable} <= {limit}; {variable}++)");
+            sb.AppendLine(
+                $"); {node.VarName} <= {limit}; {node.VarName}++)");
 
-            _sb.AppendLine("{");
+            sb.AppendLine(
+                $"{indent}{{");
 
-            foreach (var expression in node.Body)
-                EmitStatement(expression);
+            foreach (var body in node.Body)
+            {
+                EmitStatement(
+                    body,
+                    sb,
+                    indent + "    ");
+            }
 
-            _sb.AppendLine("}");
+            sb.AppendLine(
+                $"{indent}}}");
         }
 
-        private void EmitExpression(ExpNode node)
+        private static void EmitExpression(
+            ExpNode node,
+            StringBuilder sb)
         {
             switch (node)
             {
-                case IntLiteralNode integer:
-                    _sb.Append(integer.Value);
-                    break;
-
-                case StringLiteralNode text:
-                    _sb.Append(
-                        "\"" +
-                        text.Value
+                case StringLiteralNode s:
+                    sb.Append('"');
+                    sb.Append(
+                        s.Value
                             .Replace("\\", "\\\\")
                             .Replace("\"", "\\\"")
-                            .Replace("\n", "\\n")
                             .Replace("\r", "\\r")
-                            .Replace("\t", "\\t") +
-                        "\"");
+                            .Replace("\n", "\\n")
+                            .Replace("\t", "\\t"));
+                    sb.Append('"');
                     break;
 
-                case BoolLiteralNode boolean:
-                    _sb.Append(
-                        boolean.Value ? "true" : "false");
+                case IntLiteralNode i:
+                    sb.Append(i.Value);
                     break;
 
-                case VarAccessNode variable:
-                    _sb.Append(SafeName(variable.Name));
+                case BoolLiteralNode b:
+                    sb.Append(
+                        b.Value ? "true" : "false");
                     break;
 
-                case AssignNode assignment:
-                    EmitExpression(assignment.Target);
-                    _sb.Append(" = ");
-                    EmitExpression(assignment.Value);
+                case VarAccessNode v:
+                    sb.Append(v.Name);
                     break;
 
-                case BinaryExpNode binary:
-                    _sb.Append("(");
-                    EmitExpression(binary.Left);
-
-                    _sb.Append(
-                        binary.Op switch
-                        {
-                            "=" => " == ",
-                            "<>" => " != ",
-                            "and" => " && ",
-                            "or" => " || ",
-                            _ => $" {binary.Op} "
-                        });
-
-                    EmitExpression(binary.Right);
-                    _sb.Append(")");
+                case AssignNode a:
+                    sb.Append(a.VarName);
+                    sb.Append(" = ");
+                    EmitExpression(
+                        a.Value,
+                        sb);
                     break;
 
-                case UnaryExpNode unary:
-                    _sb.Append(unary.Op);
-                    _sb.Append("(");
-                    EmitExpression(unary.Operand);
-                    _sb.Append(")");
+                case ArrayAssignNode aa:
+                    EmitExpression(
+                        aa.Array,
+                        sb);
+
+                    sb.Append("[");
+                    EmitExpression(
+                        aa.Index,
+                        sb);
+                    sb.Append("] = ");
+
+                    EmitExpression(
+                        aa.Value,
+                        sb);
+
                     break;
 
-                case CallExpNode call:
-                    EmitCall(call);
+                case FieldAssignNode fa:
+                    EmitExpression(
+                        fa.Target,
+                        sb);
+
+                    sb.Append(".");
+                    sb.Append(fa.FieldName);
+                    sb.Append(" = ");
+
+                    EmitExpression(
+                        fa.Value,
+                        sb);
+
+                    break;
+
+                case ArrayAccessNode aa:
+                    EmitExpression(
+                        aa.Array,
+                        sb);
+
+                    sb.Append("[");
+                    EmitExpression(
+                        aa.Index,
+                        sb);
+                    sb.Append("]");
+
+                    break;
+
+                case FieldAccessNode fa:
+                    EmitExpression(
+                        fa.Target,
+                        sb);
+
+                    sb.Append(".");
+                    sb.Append(fa.FieldName);
+
                     break;
 
                 case ArrayLiteralNode array:
-                    _sb.Append("new ");
-                    _sb.Append(
-                        MapTigerType(
-                            array.InferredType ??
-                            TigerType.ArrayOf(TigerType.Int)));
+                    sb.Append(
+                        "new dynamic[] { ");
 
-                    _sb.Append(" { ");
-
-                    for (int i = 0; i < array.Elements.Count; i++)
+                    for (int i = 0;
+                         i < array.Elements.Count;
+                         i++)
                     {
                         if (i > 0)
-                            _sb.Append(", ");
+                            sb.Append(", ");
 
-                        EmitExpression(array.Elements[i]);
+                        EmitExpression(
+                            array.Elements[i],
+                            sb);
                     }
 
-                    _sb.Append(" }");
+                    sb.Append(" }");
                     break;
 
-                case ArrayAccessNode access:
-                    EmitExpression(access.Array);
-                    _sb.Append("[");
-                    EmitExpression(access.Index);
-                    _sb.Append("]");
+                case StructInitNode st:
+                    sb.Append(
+                        $"new {st.TypeName}(");
+
+                    for (int i = 0;
+                         i < st.Args.Count;
+                         i++)
+                    {
+                        if (i > 0)
+                            sb.Append(", ");
+
+                        EmitExpression(
+                            st.Args[i],
+                            sb);
+                    }
+
+                    sb.Append(")");
                     break;
 
-                case FieldAccessNode field:
-                    EmitExpression(field.Target);
-                    _sb.Append(".");
-                    _sb.Append(SafeName(field.FieldName));
+                case BinaryExpNode binary:
+                    sb.Append("(");
+
+                    EmitExpression(
+                        binary.Left,
+                        sb);
+
+                    sb.Append(" ");
+
+                    sb.Append(
+                        binary.Op switch
+                        {
+                            "=" => "==",
+                            "<>" => "!=",
+                            "and" => "&&",
+                            "or" => "||",
+                            _ => binary.Op
+                        });
+
+                    sb.Append(" ");
+
+                    EmitExpression(
+                        binary.Right,
+                        sb);
+
+                    sb.Append(")");
                     break;
 
-                case StructInitNode structure:
-                    EmitStructInit(structure);
+                case UnaryExpNode unary:
+                    sb.Append("(");
+                    sb.Append(unary.Op);
+
+                    EmitExpression(
+                        unary.Operand,
+                        sb);
+
+                    sb.Append(")");
                     break;
 
-                case IfExpNode conditional:
-                    EmitExpressionIf(conditional);
+                case CallExpNode call:
+                    if (IsBuiltin(call.FuncName))
+                        sb.Append("TigerStdLib.");
+
+                    sb.Append(call.FuncName);
+                    sb.Append("(");
+
+                    for (int i = 0;
+                         i < call.Args.Count;
+                         i++)
+                    {
+                        if (i > 0)
+                            sb.Append(", ");
+
+                        EmitExpression(
+                            call.Args[i],
+                            sb);
+                    }
+
+                    sb.Append(")");
+                    break;
+
+                case IfExpNode ifNode:
+                    EmitIfExpression(
+                        ifNode,
+                        sb);
+                    break;
+
+                case LetExpNode letNode:
+                    EmitLetExpression(
+                        letNode,
+                        sb);
                     break;
 
                 default:
-                    _sb.Append("default");
+                    sb.Append("null");
                     break;
             }
         }
 
-        private void EmitCall(CallExpNode call)
+        private static void EmitIfExpression(
+            IfExpNode node,
+            StringBuilder sb)
         {
-            string name = call.FuncName switch
+            sb.Append(
+                "((Func<dynamic>)(() => { ");
+
+            sb.Append(
+                "if (TigerStdLib.IsTruthy(");
+
+            EmitExpression(
+                node.Cond,
+                sb);
+
+            sb.Append(")) { ");
+
+            EmitLambdaBody(
+                node.ThenBody,
+                sb);
+
+            sb.Append(" } ");
+
+            if (node.HasElse)
             {
-                "print" => "TigerStdLib.print",
-                "printline" => "TigerStdLib.printline",
-                "printint" => "TigerStdLib.printint",
-                "printbool" => "TigerStdLib.printbool",
-                "flush" => "TigerStdLib.flush",
-                "getchar" => "TigerStdLib.getchar",
-                "ord" => "TigerStdLib.ord",
-                "chr" => "TigerStdLib.chr",
-                "size" => "TigerStdLib.size",
-                "substring" => "TigerStdLib.substring",
-                "concat" => "TigerStdLib.concat",
-                "not" => "TigerStdLib.not",
-                "exit" => "TigerStdLib.exit",
-                _ => SafeName(call.FuncName)
-            };
+                sb.Append("else { ");
 
-            _sb.Append(name);
-            _sb.Append("(");
+                EmitLambdaBody(
+                    node.ElseBody,
+                    sb);
 
-            for (int i = 0; i < call.Args.Count; i++)
-            {
-                if (i > 0)
-                    _sb.Append(", ");
-
-                EmitExpression(call.Args[i]);
-            }
-
-            _sb.Append(")");
-        }
-
-        private void EmitStructInit(
-            StructInitNode structure)
-        {
-            _sb.Append(
-                $"new {SafeName(structure.StructName)}");
-
-            _sb.Append(" { ");
-
-            TigerStruct? definition =
-                FindStruct(structure.StructName);
-
-            for (int i = 0; i < structure.Args.Count; i++)
-            {
-                if (i > 0)
-                    _sb.Append(", ");
-
-                if (definition != null &&
-                    i < definition.Fields.Count)
-                {
-                    var field =
-                        new List<KeyValuePair<string, TigerType>>(
-                            definition.Fields)[i];
-
-                    _sb.Append(
-                        $"{SafeName(field.Key)} = ");
-
-                    EmitExpression(structure.Args[i]);
-                }
-                else
-                {
-                    EmitExpression(structure.Args[i]);
-                }
-            }
-
-            _sb.Append(" }");
-        }
-
-        private void EmitExpressionIf(
-            IfExpNode node)
-        {
-            _sb.Append("(");
-            EmitExpression(node.Cond);
-            _sb.Append(" ? ");
-
-            if (node.Then.Count == 1)
-                EmitExpression(node.Then[0]);
-            else
-                _sb.Append("default");
-
-            _sb.Append(" : ");
-
-            if (node.Else != null &&
-                node.Else.Count == 1)
-            {
-                EmitExpression(node.Else[0]);
+                sb.Append(" } ");
             }
             else
             {
-                _sb.Append("default");
+                sb.Append(
+                    "else { return null; } ");
             }
 
-            _sb.Append(")");
+            sb.Append(
+                "}))()");
         }
 
-        private void EmitRuntime()
+        private static void EmitLambdaBody(
+            List<ExpNode> body,
+            StringBuilder sb)
         {
-            _sb.AppendLine(
-                "public static class TigerStdLib");
-            _sb.AppendLine("{");
-
-            _sb.AppendLine(
-                "public static void print(string s) { Console.Write(s); Console.Out.Flush(); }");
-
-            _sb.AppendLine(
-                "public static void printline(string s) { Console.WriteLine(s); }");
-
-            _sb.AppendLine(
-                "public static void printint(int i) { Console.Write(i); Console.Out.Flush(); }");
-
-            _sb.AppendLine(
-                "public static void printbool(bool b) { Console.Write(b); Console.Out.Flush(); }");
-
-            _sb.AppendLine(
-                "public static void flush() { Console.Out.Flush(); }");
-
-            _sb.AppendLine(
-                "public static string getchar() { int c = Console.Read(); return c < 0 ? \"\" : ((char)c).ToString(); }");
-
-            _sb.AppendLine(
-                "public static int ord(string s) { return string.IsNullOrEmpty(s) ? -1 : s[0]; }");
-
-            _sb.AppendLine(
-                "public static string chr(int i) { return ((char)i).ToString(); }");
-
-            _sb.AppendLine(
-                "public static int size(string s) { return s.Length; }");
-
-            _sb.AppendLine(
-                "public static string substring(string s, int first, int n) { return s.Substring(first, n); }");
-
-            _sb.AppendLine(
-                "public static string concat(string a, string b) { return string.Concat(a, b); }");
-
-            _sb.AppendLine(
-                "public static bool not(bool value) { return !value; }");
-
-            _sb.AppendLine(
-                "public static void exit(int status) { Environment.Exit(status); }");
-
-            _sb.AppendLine("}");
-        }
-
-        private string MapType(string? name)
-        {
-            if (string.IsNullOrEmpty(name))
-                return "void";
-
-            if (name.EndsWith("[]"))
+            if (body.Count == 0)
             {
-                string element =
-                    name[..^2];
+                sb.Append(
+                    "return null;");
 
-                return $"{MapType(element)}[]";
+                return;
             }
 
-            return name switch
+            for (int i = 0;
+                 i < body.Count - 1;
+                 i++)
             {
-                "int" => "int",
-                "string" => "string",
-                "bool" => "bool",
-                "void" => "void",
-                _ => SafeName(name)
-            };
-        }
+                EmitExpression(
+                    body[i],
+                    sb);
 
-        private string MapTigerType(TigerType type)
-        {
-            if (type.IsArray &&
-                type.ElementType != null)
-            {
-                return $"{MapTigerType(type.ElementType)}[]";
+                sb.Append(";");
             }
 
-            return type.Name switch
-            {
-                "int" => "int[]",
-                "string" => "string[]",
-                "bool" => "bool[]",
-                _ => $"{SafeName(type.Name)}[]"
-            };
+            sb.Append("return ");
+
+            EmitExpression(
+                body[^1],
+                sb);
+
+            sb.Append(";");
         }
 
-        private string DefaultValue(string type)
+        private static void EmitLetExpression(
+            LetExpNode let,
+            StringBuilder sb)
         {
-            return type switch
+            sb.Append(
+                "((Func<dynamic>)(() => { ");
+
+            foreach (var dec in let.Decs)
             {
-                "int" => "0",
-                "string" => "\"\"",
-                "bool" => "false",
-                _ => "default"
-            };
+                if (dec is VarDeclNode v)
+                {
+                    sb.Append(
+                        $"dynamic {v.Name} = ");
+
+                    EmitExpression(
+                        v.Init,
+                        sb);
+
+                    sb.Append("; ");
+                }
+            }
+
+            if (let.Body.Count == 0)
+            {
+                sb.Append(
+                    "return null; ");
+            }
+            else
+            {
+                for (int i = 0;
+                     i < let.Body.Count - 1;
+                     i++)
+                {
+                    EmitExpression(
+                        let.Body[i],
+                        sb);
+
+                    sb.Append("; ");
+                }
+
+                sb.Append(
+                    "return ");
+
+                EmitExpression(
+                    let.Body[^1],
+                    sb);
+
+                sb.Append("; ");
+            }
+
+            sb.Append(
+                "}))()");
         }
 
-        private string SafeName(string name)
+        private static bool IsBuiltin(
+            string name)
         {
-            return name switch
-            {
-                "class" => "@class",
-                "struct" => "@struct",
-                "string" => "@string",
-                "int" => "@int",
-                "bool" => "@bool",
-                "void" => "@void",
-                "namespace" => "@namespace",
-                "object" => "@object",
-                _ => name
-            };
+            return name is
+                "print" or
+                "printline" or
+                "printint" or
+                "printbool" or
+                "flush" or
+                "getchar" or
+                "ord" or
+                "chr" or
+                "size" or
+                "substring" or
+                "concat" or
+                "not" or
+                "exit";
         }
 
-        private TigerStruct? FindStruct(string name)
+        private static string Sanitize(
+            string name)
         {
-            return null;
+            var sb = new StringBuilder();
+
+            foreach (char c in name)
+            {
+                sb.Append(
+                    char.IsLetterOrDigit(c) || c == '_'
+                        ? c
+                        : '_');
+            }
+
+            return sb.ToString();
+        }
+
+        private static void EmitStdLib(
+            StringBuilder sb)
+        {
+            sb.AppendLine(
+                "    public static class TigerStdLib");
+
+            sb.AppendLine(
+                "    {");
+
+            sb.AppendLine(
+                "        public static void Init() { }");
+
+            sb.AppendLine(
+                "        public static void print(string s) { Console.Write(s); Console.Out.Flush(); }");
+
+            sb.AppendLine(
+                "        public static void printline(string s) { Console.WriteLine(s); }");
+
+            sb.AppendLine(
+                "        public static void printint(int i) { Console.Write(i); Console.Out.Flush(); }");
+
+            sb.AppendLine(
+                "        public static void printbool(bool b) { Console.Write(b ? 1 : 0); Console.Out.Flush(); }");
+
+            sb.AppendLine(
+                "        public static void flush() { Console.Out.Flush(); }");
+
+            sb.AppendLine(
+                "        public static string getchar() { int c = Console.Read(); return c < 0 ? \"\" : ((char)c).ToString(); }");
+
+            sb.AppendLine(
+                "        public static int ord(string s) => string.IsNullOrEmpty(s) ? -1 : s[0];");
+
+            sb.AppendLine(
+                "        public static string chr(int i) => ((char)i).ToString();");
+
+            sb.AppendLine(
+                "        public static int size(string s) => s?.Length ?? 0;");
+
+            sb.AppendLine(
+                "        public static string substring(string s, int first, int n) => s.Substring(first, n);");
+
+            sb.AppendLine(
+                "        public static string concat(string s1, string s2) => string.Concat(s1, s2);");
+
+            sb.AppendLine(
+                "        public static bool not(bool b) => !b;");
+
+            sb.AppendLine(
+                "        public static void exit(int status) => Environment.Exit(status);");
+
+            sb.AppendLine(
+                "        public static bool IsTruthy(bool value) => value;");
+
+            sb.AppendLine(
+                "    }");
         }
 
         public static bool CompileToAssembly(
             string csharpCode,
             CompilerOptions options)
         {
-            SyntaxTree syntaxTree =
-                CSharpSyntaxTree.ParseText(csharpCode);
+            var syntaxTree =
+                CSharpSyntaxTree.ParseText(
+                    csharpCode);
 
             string baseName =
                 Path.GetFileNameWithoutExtension(
@@ -612,127 +1029,231 @@ namespace Tiger.NET
                         options.OutputFilePath))
                 ?? Directory.GetCurrentDirectory();
 
-            Directory.CreateDirectory(outputDir);
+            Directory.CreateDirectory(
+                outputDir);
 
             string dllPath =
                 Path.Combine(
                     outputDir,
                     $"{baseName}.dll");
 
-            IEnumerable<MetadataReference> references =
-                GetReferences(options.TargetFramework);
+            string exePath =
+                Path.Combine(
+                    outputDir,
+                    $"{baseName}.exe");
 
-            OutputKind outputKind =
+            string rawTfm =
+                string.IsNullOrEmpty(
+                    options.TargetFramework)
+                    ? "net10.0"
+                    : options.TargetFramework
+                        .ToLowerInvariant();
+
+            string targetTfm =
+                rawTfm.StartsWith("net10")
+                    ? "net10.0"
+                    : "net9.0";
+
+            string frameworkVersion =
+                targetTfm == "net10.0"
+                    ? "10.0.11"
+                    : "9.0.0";
+
+            IEnumerable<Microsoft.CodeAnalysis.MetadataReference> references =
+                targetTfm == "net10.0"
+                    ? GetNet10References()
+                    : Net90.References.All;
+
+            var outputKind =
                 options.TargetType switch
                 {
                     OutputType.Dll =>
-                        OutputKind.DynamicallyLinkedLibrary,
+                        Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary,
 
                     OutputType.WindowsApplication =>
-                        OutputKind.WindowsApplication,
+                        Microsoft.CodeAnalysis.OutputKind.WindowsApplication,
 
                     _ =>
-                        OutputKind.ConsoleApplication
+                        Microsoft.CodeAnalysis.OutputKind.ConsoleApplication
                 };
 
-            OptimizationLevel optimization =
+            var optimization =
                 options.OptimizationLevel ==
                 OptimizationLevelKind.Debug
-                    ? OptimizationLevel.Debug
-                    : OptimizationLevel.Release;
+                    ? Microsoft.CodeAnalysis.OptimizationLevel.Debug
+                    : Microsoft.CodeAnalysis.OptimizationLevel.Release;
 
             var compilation =
-                CSharpCompilation.Create(
+                Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create(
                     baseName,
                     new[] { syntaxTree },
                     references,
-                    new CSharpCompilationOptions(
+                    new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(
                         outputKind,
-                        optimizationLevel:
-                            optimization));
+                        optimizationLevel: optimization));
 
-            using var stream =
-                File.Create(dllPath);
-
-            EmitResult result =
-                compilation.Emit(stream);
-
-            if (!result.Success)
+            using (var stream =
+                   File.Create(dllPath))
             {
-                Console.WriteLine(
-                    "[Error] C# compilation failed:");
+                var result =
+                    compilation.Emit(stream);
 
-                foreach (var diagnostic in result.Diagnostics)
+                if (!result.Success)
                 {
-                    if (diagnostic.Severity ==
-                        DiagnosticSeverity.Error)
-                    {
-                        Console.WriteLine(
-                            $"{diagnostic.Id}: {diagnostic.GetMessage()}");
-                    }
-                }
+                    Console.WriteLine(
+                        "[Error] Compilation Failed:");
 
-                return false;
+                    foreach (var diagnostic
+                             in result.Diagnostics)
+                    {
+                        if (diagnostic.Severity ==
+                            Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+                        {
+                            Console.WriteLine(
+                                $"  {diagnostic.Id}: {diagnostic.GetMessage()}");
+                        }
+                    }
+
+                    return false;
+                }
             }
+
+            string configPath =
+                Path.Combine(
+                    outputDir,
+                    $"{baseName}.runtimeconfig.json");
+
+            File.WriteAllText(
+                configPath,
+                "{\n" +
+                "  \"runtimeOptions\": {\n" +
+                $"    \"tfm\": \"{targetTfm}\",\n" +
+                "    \"framework\": {\n" +
+                "      \"name\": \"Microsoft.NETCore.App\",\n" +
+                $"      \"version\": \"{frameworkVersion}\"\n" +
+                "    },\n" +
+                "    \"rollForward\": \"LatestMinor\"\n" +
+                "  }\n" +
+                "}");
+
+            if (OperatingSystem.IsWindows())
+            {
+                CreateNativeAppHost(
+                    dllPath,
+                    exePath);
+            }
+
+            Console.WriteLine(
+                $"[Success] Assembly Generated ({targetTfm}): {dllPath}");
 
             return true;
         }
 
-        private static IEnumerable<MetadataReference> GetReferences(
-            string framework)
+        private static bool CreateNativeAppHost(
+            string dllPath,
+            string destinationExePath)
         {
-            if (!string.IsNullOrEmpty(framework) &&
-                framework.StartsWith("net9"))
+            try
             {
-                return Net90.References.All;
-            }
+                string programFiles =
+                    Environment.GetFolderPath(
+                        Environment.SpecialFolder.ProgramFiles);
 
-            return GetNet10References();
+                string appHostPackDir =
+                    Path.Combine(
+                        programFiles,
+                        "dotnet",
+                        "packs",
+                        "Microsoft.NETCore.App.Host.win-x64");
+
+                if (!Directory.Exists(
+                    appHostPackDir))
+                {
+                    return false;
+                }
+
+                var versionDirs =
+                    Directory.GetDirectories(
+                        appHostPackDir,
+                        "10.0.*");
+
+                if (versionDirs.Length == 0)
+                    return false;
+
+                Array.Sort(
+                    versionDirs);
+
+                string template =
+                    Path.Combine(
+                        versionDirs[^1],
+                        "runtimes",
+                        "win-x64",
+                        "native",
+                        "apphost.exe");
+
+                if (!File.Exists(template))
+                    return false;
+
+                HostModelUtils.CreateStandaloneHost(
+                    template,
+                    destinationExePath,
+                    dllPath);
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
-        private static IEnumerable<MetadataReference> GetNet10References()
+        private static IEnumerable<Microsoft.CodeAnalysis.MetadataReference>
+            GetNet10References()
         {
             var list =
-                new List<MetadataReference>();
+                new List<Microsoft.CodeAnalysis.MetadataReference>();
 
             string programFiles =
                 Environment.GetFolderPath(
                     Environment.SpecialFolder.ProgramFiles);
 
-            string refPack =
+            string refPackDir =
                 Path.Combine(
                     programFiles,
                     "dotnet",
                     "packs",
                     "Microsoft.NETCore.App.Ref");
 
-            if (Directory.Exists(refPack))
+            if (Directory.Exists(
+                refPackDir))
             {
-                var versions =
+                var versionDirs =
                     Directory.GetDirectories(
-                        refPack,
+                        refPackDir,
                         "10.0.*");
 
-                if (versions.Length > 0)
+                if (versionDirs.Length > 0)
                 {
-                    Array.Sort(versions);
+                    Array.Sort(
+                        versionDirs);
 
-                    string latest =
+                    string latestRef =
                         Path.Combine(
-                            versions[^1],
+                            versionDirs[^1],
                             "ref",
                             "net10.0");
 
-                    if (Directory.Exists(latest))
+                    if (Directory.Exists(
+                        latestRef))
                     {
                         foreach (var dll in
                                  Directory.GetFiles(
-                                     latest,
+                                     latestRef,
                                      "*.dll"))
                         {
                             list.Add(
-                                MetadataReference.CreateFromFile(
-                                    dll));
+                                Microsoft.CodeAnalysis.MetadataReference
+                                    .CreateFromFile(dll));
                         }
 
                         return list;
@@ -740,40 +1261,109 @@ namespace Tiger.NET
                 }
             }
 
-            string shared =
-                Path.Combine(
-                    programFiles,
-                    "dotnet",
-                    "shared",
-                    "Microsoft.NETCore.App");
+            return list;
+        }
+    }
 
-            if (Directory.Exists(shared))
+    public static class HostModelUtils
+    {
+        public static void CreateStandaloneHost(
+            string appHostSourcePath,
+            string appHostDestinationPath,
+            string appBinaryFilePath)
+        {
+            byte[] bytes =
+                File.ReadAllBytes(
+                    appHostSourcePath);
+
+            byte[] pattern =
+                Encoding.ASCII.GetBytes(
+                    "c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2");
+
+            byte[] replacement =
+                Encoding.UTF8.GetBytes(
+                    Path.GetFileName(
+                        appBinaryFilePath) + "\0");
+
+            int index =
+                IndexOfBytes(
+                    bytes,
+                    pattern);
+
+            if (index >= 0 &&
+                index + 1024 <= bytes.Length)
             {
-                var versions =
-                    Directory.GetDirectories(
-                        shared,
-                        "10.0.*");
+                Array.Clear(
+                    bytes,
+                    index,
+                    1024);
 
-                if (versions.Length > 0)
-                {
-                    Array.Sort(versions);
+                Array.Copy(
+                    replacement,
+                    0,
+                    bytes,
+                    index,
+                    replacement.Length);
+            }
+            else
+            {
+                byte[] fallback =
+                    Encoding.UTF8.GetBytes(
+                        "apphost.dll\0");
 
-                    string latest =
-                        versions[^1];
+                int fallbackIndex =
+                    IndexOfBytes(
+                        bytes,
+                        fallback);
 
-                    foreach (var dll in
-                             Directory.GetFiles(
-                                 latest,
-                                 "*.dll"))
-                    {
-                        list.Add(
-                            MetadataReference.CreateFromFile(
-                                dll));
-                    }
-                }
+                if (fallbackIndex < 0)
+                    return;
+
+                Array.Clear(
+                    bytes,
+                    fallbackIndex,
+                    fallback.Length);
+
+                Array.Copy(
+                    replacement,
+                    0,
+                    bytes,
+                    fallbackIndex,
+                    replacement.Length);
             }
 
-            return list;
+            File.WriteAllBytes(
+                appHostDestinationPath,
+                bytes);
+        }
+
+        private static int IndexOfBytes(
+            byte[] source,
+            byte[] pattern)
+        {
+            for (int i = 0;
+                 i <= source.Length - pattern.Length;
+                 i++)
+            {
+                bool match = true;
+
+                for (int j = 0;
+                     j < pattern.Length;
+                     j++)
+                {
+                    if (source[i + j] !=
+                        pattern[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                    return i;
+            }
+
+            return -1;
         }
     }
 }
